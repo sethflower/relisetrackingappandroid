@@ -3,19 +3,16 @@ from __future__ import annotations
 
 import calendar
 import csv
-import hashlib
 import json
 import threading
-import time
-import uuid
 from collections import defaultdict
-from dataclasses import dataclass, asdict, fields
+from dataclasses import dataclass, asdict
 from datetime import datetime, date, time as dtime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 try:
     import requests
@@ -27,7 +24,6 @@ except ImportError as exc:  # pragma: no cover - handled at runtime
 API_BASE = "https://tracking-api-b4jb.onrender.com"
 STATE_PATH = Path(__file__).with_name("tracking_app_state.json")
 QUEUE_PATH = Path(__file__).with_name("offline_queue.json")
-USERS_PATH = Path(__file__).with_name("tracking_users.json")
 
 # Design constants for corporate-style UI
 PRIMARY_BG = "#0f172a"
@@ -61,7 +57,8 @@ WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
 @dataclass
 class AppState:
     token: Optional[str] = None
-    role: str = "viewer"
+    access_level: int = 2
+    last_password: str = ""
     user_name: str = "operator"
 
     @classmethod
@@ -69,15 +66,7 @@ class AppState:
         if STATE_PATH.exists():
             try:
                 data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-                valid_fields = {field.name for field in fields(cls)}
-                filtered = {key: value for key, value in data.items() if key in valid_fields}
-                if "role" not in filtered and "access_level" in data:
-                    filtered["role"] = {
-                        0: "operator",
-                        1: "admin",
-                        2: "viewer",
-                    }.get(data.get("access_level", 2), "viewer")
-                return cls(**filtered)
+                return cls(**data)
             except Exception:
                 STATE_PATH.unlink(missing_ok=True)
         return cls()
@@ -142,261 +131,14 @@ class OfflineQueue:
         threading.Thread(target=worker, daemon=True).start()
 
 
-def get_role_info(role: str) -> Dict[str, Any]:
-    role_key = (role or "viewer").lower()
-    mapping = {
-        "admin": {
-            "label": "🔑 Адмін",
-            "color": "#e53935",
-            "can_clear_history": True,
-            "can_clear_errors": True,
-        },
-        "support": {
-            "label": "🧰 Підтримка",
-            "color": "#fb8c00",
-            "can_clear_history": False,
-            "can_clear_errors": True,
-        },
-        "operator": {
-            "label": "🧰 Оператор",
-            "color": "#1e88e5",
-            "can_clear_history": False,
-            "can_clear_errors": False,
-        },
-        "viewer": {
-            "label": "👁 Перегляд",
-            "color": "#757575",
-            "can_clear_history": False,
-            "can_clear_errors": False,
-        },
-    }
-    return mapping.get(role_key, mapping["viewer"])
-
-
-def _hash_password(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-class LocalUserStore:
-    _lock = threading.Lock()
-
-    @classmethod
-    def _load(cls) -> Dict[str, Any]:
-        if USERS_PATH.exists():
-            try:
-                return json.loads(USERS_PATH.read_text(encoding="utf-8"))
-            except Exception:
-                USERS_PATH.unlink(missing_ok=True)
-        return {"users": {}, "sessions": {}}
-
-    @classmethod
-    def _save(cls, data: Dict[str, Any]) -> None:
-        USERS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-    @classmethod
-    def register_user(cls, surname: str, password: str) -> Dict[str, Any]:
-        normalized = surname.strip()
-        if not normalized:
-            return {"ok": False, "message": "Вкажіть прізвище"}
-        key = normalized.lower()
-        hashed = _hash_password(password)
-        with cls._lock:
-            data = cls._load()
-            users = data.setdefault("users", {})
-            user = users.get(key)
-            if user:
-                user.update(
-                    {
-                        "surname": normalized,
-                        "password_hash": hashed,
-                        "status": "pending",
-                    }
-                )
-            else:
-                users[key] = {
-                    "surname": normalized,
-                    "password_hash": hashed,
-                    "role": "operator",
-                    "status": "pending",
-                }
-            cls._save(data)
-        return {
-            "ok": True,
-            "status": "pending",
-            "message": "Заявка відправлена на розгляд адміністратора",
-        }
-
-    @classmethod
-    def start_session(cls, surname: str, password: str) -> Dict[str, Any]:
-        normalized = surname.strip()
-        if not normalized:
-            return {"ok": False, "message": "Вкажіть прізвище"}
-        key = normalized.lower()
-        hashed = _hash_password(password)
-        with cls._lock:
-            data = cls._load()
-            user = data.get("users", {}).get(key)
-            if not user:
-                return {"ok": False, "message": "Користувача не знайдено"}
-            if user.get("password_hash") != hashed:
-                return {"ok": False, "message": "Невірні дані для входу"}
-            status = user.get("status", "pending")
-            if status != "active":
-                return {
-                    "ok": True,
-                    "status": status,
-                    "role": user.get("role", "viewer"),
-                    "surname": user.get("surname", normalized),
-                    "message": {
-                        "pending": "Заявка ще розглядається",
-                        "rejected": "Заявку відхилено",
-                    }.get(status, "Обліковий запис недоступний"),
-                }
-            token = uuid.uuid4().hex
-            sessions = data.setdefault("sessions", {})
-            sessions[token] = key
-            cls._save(data)
-        return {
-            "ok": True,
-            "token": token,
-            "role": user.get("role", "viewer"),
-            "status": status,
-            "surname": user.get("surname", normalized),
-        }
-
-    @classmethod
-    def get_pending_requests(cls) -> Dict[str, Any]:
-        with cls._lock:
-            data = cls._load()
-            users = data.get("users", {})
-            requests_data = [
-                {
-                    "surname": item.get("surname", key.title()),
-                    "status": item.get("status", "pending"),
-                    "role": item.get("role", "operator"),
-                }
-                for key, item in users.items()
-                if item.get("status") == "pending"
-            ]
-        return {"ok": True, "requests": requests_data}
-
-    @classmethod
-    def update_request(
-        cls, surname: str, *, status: str, role: Optional[str] = None
-    ) -> Dict[str, Any]:
-        normalized = surname.strip()
-        key = normalized.lower()
-        with cls._lock:
-            data = cls._load()
-            users = data.get("users", {})
-            user = users.get(key)
-            if not user:
-                return {"ok": False, "message": "Користувача не знайдено"}
-            user["status"] = status
-            if role:
-                user["role"] = role
-            if status != "active":
-                sessions = data.get("sessions", {})
-                sessions = {
-                    token: stored
-                    for token, stored in sessions.items()
-                    if stored != key
-                }
-                data["sessions"] = sessions
-            cls._save(data)
-        return {"ok": True, "message": "Рішення збережено"}
-
-
-class BackendClient:
-    def _normalize_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        result = {
-            "ok": bool(data.get("ok", True)),
-            "message": data.get("message", ""),
-        }
-        for key in ("token", "role", "status", "surname", "requests"):
-            if key in data:
-                result[key] = data[key]
-        return result
-
-    def register_user(self, surname: str, password: str) -> Dict[str, Any]:
-        payload = {"surname": surname, "password": password}
-        try:
-            response = requests.post(
-                f"{API_BASE}/register",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=10,
-            )
-            if response.status_code != 404 and response.status_code < 500:
-                data = response.json()
-                normalized = self._normalize_response(data)
-                normalized["ok"] = response.status_code < 300 and normalized.get("ok", True)
-                return normalized
-        except (requests.RequestException, ValueError):
-            pass
-        return LocalUserStore.register_user(surname, password)
-
-    def start_session(self, surname: str, password: str) -> Dict[str, Any]:
-        payload = {"surname": surname, "password": password}
-        try:
-            response = requests.post(
-                f"{API_BASE}/session",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=10,
-            )
-            if response.status_code == 401:
-                data = response.json()
-                normalized = self._normalize_response(data)
-                normalized["ok"] = False
-                local = LocalUserStore.start_session(surname, password)
-                if local.get("ok"):
-                    return local
-                return normalized
-            if response.status_code != 404 and response.status_code < 500:
-                data = response.json()
-                normalized = self._normalize_response(data)
-                normalized["ok"] = response.status_code < 300 and normalized.get("ok", True)
-                return normalized
-        except (requests.RequestException, ValueError):
-            pass
-        return LocalUserStore.start_session(surname, password)
-
-    def get_admin_requests(self) -> Dict[str, Any]:
-        try:
-            response = requests.get(f"{API_BASE}/admin/requests", timeout=10)
-            if response.status_code != 404 and response.status_code < 500:
-                data = response.json()
-                normalized = self._normalize_response(data)
-                normalized.setdefault("requests", data.get("requests", []))
-                normalized["ok"] = response.status_code < 300 and normalized.get("ok", True)
-                return normalized
-        except (requests.RequestException, ValueError):
-            pass
-        return LocalUserStore.get_pending_requests()
-
-    def submit_admin_decision(
-        self, surname: str, *, status: str, role: Optional[str]
-    ) -> Dict[str, Any]:
-        payload = {"surname": surname, "status": status, "role": role}
-        try:
-            response = requests.post(
-                f"{API_BASE}/admin/requests",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=10,
-            )
-            if response.status_code != 404 and response.status_code < 500:
-                data = response.json()
-                normalized = self._normalize_response(data)
-                normalized["ok"] = response.status_code < 300 and normalized.get("ok", True)
-                return normalized
-        except (requests.RequestException, ValueError):
-            pass
-        return LocalUserStore.update_request(surname, status=status, role=role)
-
-
-backend_client = BackendClient()
+def get_role_info(access_level: int, password: str) -> Dict[str, Any]:
+    if access_level == 1 or password == "301993":
+        return {"label": "🔑 Адмін", "color": "#e53935", "can_clear_history": True, "can_clear_errors": True}
+    if password == "123123123":
+        return {"label": "🧰 Очищення помилок", "color": "#fb8c00", "can_clear_history": False, "can_clear_errors": True}
+    if access_level == 0:
+        return {"label": "🧰 Оператор", "color": "#1e88e5", "can_clear_history": False, "can_clear_errors": False}
+    return {"label": "👁 Перегляд", "color": "#757575", "can_clear_history": False, "can_clear_errors": False}
 
 
 def parse_api_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -917,7 +659,7 @@ class TrackingApp(tk.Tk):
         self.switch_to(ErrorsFrame)
 
     def show_statistics(self) -> None:
-        role = get_role_info(self.state_data.role)
+        role = get_role_info(self.state_data.access_level, self.state_data.last_password)
         if not (role.get("can_clear_history") and role.get("can_clear_errors")):
             messagebox.showerror(
                 "Обмежено",
@@ -926,25 +668,13 @@ class TrackingApp(tk.Tk):
             return
         self.switch_to(StatisticsFrame)
 
-    def show_admin_requests(self) -> None:
-        self.switch_to(AdminApprovalFrame)
-
 
 class LoginFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
-        self.mode_var = tk.StringVar(value="login")
-        self.surname_var = tk.StringVar()
         self.password_var = tk.StringVar()
-        self.confirm_var = tk.StringVar()
-        self.message_var = tk.StringVar()
+        self.error_var = tk.StringVar()
         self.loading = False
-        self.failed_attempts = 0
-        self.lock_until: Optional[float] = None
-        self.lock_job: Optional[str] = None
-        self.max_attempts = 5
-        self.lock_seconds = 60
-        self.mode_buttons: Dict[str, ttk.Button] = {}
 
         wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=120, pady=120)
         wrapper.grid(row=0, column=0, sticky="nsew")
@@ -995,127 +725,41 @@ class LoginFrame(BaseFrame):
             style="CardSubheading.TLabel",
             anchor="center",
         ).grid(row=1, column=0, sticky="ew", pady=(4, 30))
-        
-        mode_frame = tk.Frame(content, bg=CARD_BG)
-        mode_frame.grid(row=2, column=0, sticky="ew", pady=(0, 24))
-        mode_frame.columnconfigure((0, 1), weight=1)
-
-        login_btn = ttk.Button(
-            mode_frame,
-            text="Вхід",
-            command=lambda: self.set_mode("login"),
-            style="Secondary.TButton",
-        )
-        login_btn.grid(row=0, column=0, padx=6, sticky="ew")
-        register_btn = ttk.Button(
-            mode_frame,
-            text="Реєстрація",
-            command=lambda: self.set_mode("register"),
-            style="Secondary.TButton",
-        )
-        register_btn.grid(row=0, column=1, padx=6, sticky="ew")
-        self.mode_buttons = {"login": login_btn, "register": register_btn}
 
         input_block = tk.Frame(content, bg=CARD_BG)
-        input_block.grid(row=3, column=0, sticky="ew")
+        input_block.grid(row=2, column=0, sticky="ew")
         input_block.columnconfigure(0, weight=1)
         tk.Label(
             input_block,
-            text="Прізвище",
+            text="Пароль доступу",
             font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
-        self.surname_entry = tk.Entry(
-            input_block,
-            textvariable=self.surname_var,
-            font=("Segoe UI", 24),
-            bg=CARD_BG,
-            fg=TEXT_PRIMARY,
-            relief="flat",
-            highlightthickness=2,
-            highlightcolor=ACCENT_COLOR,
-            highlightbackground=NEUTRAL_BORDER,
-            insertbackground=TEXT_PRIMARY,
-        )
-        self.surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 16), ipady=12)
-        self.surname_entry.bind("<Return>", lambda _: self.password_entry.focus_set())
-
-        tk.Label(
-            input_block,
-            text="Пароль",
-            font=("Segoe UI", 12, "bold"),
-            fg=TEXT_SECONDARY,
-            bg=CARD_BG,
-        ).grid(row=2, column=0, sticky="w")
-        self.password_entry = tk.Entry(
+        entry = create_large_entry(
             input_block,
             textvariable=self.password_var,
             show="*",
-            font=("Segoe UI", 24),
-            bg=CARD_BG,
-            fg=TEXT_PRIMARY,
-            relief="flat",
-            highlightthickness=2,
-            highlightcolor=ACCENT_COLOR,
-            highlightbackground=NEUTRAL_BORDER,
-            insertbackground=TEXT_PRIMARY,
         )
-        self.password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 0), ipady=12)
-        self.password_entry.bind("<Return>", lambda _: self.submit())
+        entry.grid(row=1, column=0, sticky="ew", pady=(8, 0), ipady=40)
+        entry.bind("<Return>", lambda _: self.login())
 
-        self.confirm_label = tk.Label(
-            input_block,
-            text="Підтвердження пароля",
-            font=("Segoe UI", 12, "bold"),
-            fg=TEXT_SECONDARY,
-            bg=CARD_BG,
-        )
-        self.confirm_label.grid(row=4, column=0, sticky="w", pady=(16, 0))
-        self.confirm_entry = tk.Entry(
-            input_block,
-            textvariable=self.confirm_var,
-            show="*",
-            font=("Segoe UI", 24),
-            bg=CARD_BG,
-            fg=TEXT_PRIMARY,
-            relief="flat",
-            highlightthickness=2,
-            highlightcolor=ACCENT_COLOR,
-            highlightbackground=NEUTRAL_BORDER,
-            insertbackground=TEXT_PRIMARY,
-        )
-        self.confirm_entry.grid(row=5, column=0, sticky="ew", pady=(8, 0), ipady=12)
-        self.confirm_entry.bind("<Return>", lambda _: self.submit())
-        self.confirm_label.grid_remove()
-        self.confirm_entry.grid_remove()
-
-        self.message_label = tk.Label(
+        self.error_label = tk.Label(
             content,
-            textvariable=self.message_var,
+            textvariable=self.error_var,
             font=("Segoe UI", 12),
             fg="#d32f2f",
             bg=CARD_BG,
-            wraplength=520,
-            justify="center",
         )
-        self.message_label.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        self.error_label.grid(row=3, column=0, sticky="ew", pady=(16, 0))
 
-        self.submit_button = ttk.Button(
+        self.button = ttk.Button(
             content,
             text="Увійти в систему",
-            command=self.submit,
+            command=self.login,
             style="Primary.TButton",
         )
-        self.submit_button.grid(row=5, column=0, sticky="ew", pady=(32, 12))
-
-        self.admin_button = ttk.Button(
-            content,
-            text="Керування заявками",
-            command=self.open_admin_panel,
-            style="Secondary.TButton",
-        )
-        self.admin_button.grid(row=6, column=0, sticky="ew")
+        self.button.grid(row=4, column=0, sticky="ew", pady=(32, 12))
 
         footer = tk.Frame(card, bg=CARD_BG, pady=20)
         footer.grid(row=2, column=0, sticky="ew")
@@ -1127,422 +771,52 @@ class LoginFrame(BaseFrame):
             bg=CARD_BG,
         ).pack()
 
-        self.update_mode_ui()
-        self.surname_entry.focus_set()
-
-    def open_admin_panel(self) -> None:
-        if self.loading:
-            return
-        password = simpledialog.askstring(
-            "Адмін-панель",
-            "Введіть пароль адміністратора",
-            show="*",
-            parent=self,
-        )
-        if password is None:
-            return
-        if password == "301993":
-            self.app.show_admin_requests()
-        else:
-            messagebox.showerror("Відмовлено", "Невірний пароль")
-
-    def update_mode_ui(self) -> None:
-        is_register = self.mode_var.get() == "register"
-        if is_register:
-            self.confirm_label.grid()
-            self.confirm_entry.grid()
-        else:
-            self.confirm_label.grid_remove()
-            self.confirm_entry.grid_remove()
-        button_text = "Надіслати заявку" if is_register else "Увійти в систему"
-        if not self.loading:
-            self.submit_button.configure(text=button_text)
-        for key, button in self.mode_buttons.items():
-            state = "disabled" if key == self.mode_var.get() or self.loading else "normal"
-            button.configure(state=state)
-        if not is_register:
-            self.confirm_var.set("")
-
-    def set_mode(self, mode: str) -> None:
-        if self.mode_var.get() == mode:
-            return
-        self.mode_var.set(mode)
-        self.update_mode_ui()
+        entry.focus_set()
 
     def set_loading(self, value: bool) -> None:
         self.loading = value
         if value:
-            self.submit_button.configure(text="Зачекайте...", state="disabled")
+            self.button.configure(text="Зачекайте...", state="disabled")
         else:
-            text = "Надіслати заявку" if self.mode_var.get() == "register" else "Увійти в систему"
-            self.submit_button.configure(text=text, state="normal")
-        for key, button in self.mode_buttons.items():
-            state = "disabled" if value or key == self.mode_var.get() else "normal"
-            button.configure(state=state)
+            self.button.configure(text="Увійти в систему", state="normal")
 
-    def display_message(self, message: str, color: str) -> None:
-        self.message_var.set(message)
-        self.message_label.configure(fg=color)
-
-    def submit(self) -> None:
+    def login(self) -> None:
         if self.loading:
             return
-        if self.lock_until and self._is_locked():
-            return
-
-        surname = self.surname_var.get().strip()
         password = self.password_var.get().strip()
-        if not surname:
-            self.display_message("Вкажіть прізвище", "#dc2626")
-            return
         if not password:
-            self.display_message("Введіть пароль", "#dc2626")
-            return
-
-        if self.mode_var.get() == "register":
-            confirm = self.confirm_var.get().strip()
-            if password != confirm:
-                self.display_message("Паролі не співпадають", "#dc2626")
-                return
-            if len(password) < 6:
-                self.display_message("Пароль має містити щонайменше 6 символів", "#dc2626")
-                return
-
-            def worker() -> None:
-                try:
-                    result = backend_client.register_user(surname, password)
-                except Exception:
-                    result = {"ok": False, "message": "Сталася помилка під час реєстрації"}
-
-                def finalize() -> None:
-                    if result.get("ok"):
-                        message = result.get(
-                            "message", "Заявку відправлено. Очікуйте підтвердження"
-                        )
-                        self.display_message(message, "#16a34a")
-                        self.set_mode("login")
-                    else:
-                        self.display_message(
-                            result.get("message", "Не вдалося зареєструватися"), "#dc2626"
-                        )
-                    self.set_loading(False)
-
-                self.after(0, finalize)
-
-            self.set_loading(True)
-            threading.Thread(target=worker, daemon=True).start()
+            self.error_var.set("Введіть пароль")
             return
 
         def worker() -> None:
             try:
-                result = backend_client.start_session(surname, password)
-            except Exception:
-                result = {"ok": False, "message": "Сталася помилка під час входу"}
+                response = requests.post(
+                    f"{API_BASE}/login",
+                    params={"password": password},
+                    headers={"Accept": "application/json"},
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    self.app.state_data.token = data.get("token")
+                    self.app.state_data.access_level = data.get("access_level", 2)
+                    self.app.state_data.last_password = password
+                    self.app.state_data.save()
+                    self.after(0, self.app.show_username)
+                else:
+                    try:
+                        message = response.json().get("message", "Невірний пароль")
+                    except Exception:
+                        message = "Невірний пароль"
+                    self.after(0, lambda: self.error_var.set(message))
+            except requests.RequestException:
+                self.after(0, lambda: self.error_var.set("Помилка підключення до сервера"))
+            finally:
+                self.after(0, lambda: self.set_loading(False))
 
-        def finalize() -> None:
-                self.set_loading(False)
-                if not result.get("ok"):
-                    self._register_failed_attempt(
-                        result.get("message", "Невірні дані для входу")
-                    )
-                    return
-                status = (result.get("status") or "active").lower()
-                message = result.get("message", "")
-                if status == "pending":
-                    self.display_message(
-                        message or "Заявка ще розглядається", "#f97316"
-                    )
-                    return
-                if status == "rejected":
-                    self.display_message(message or "Заявку відхилено", "#dc2626")
-                    return
-                token = result.get("token")
-                if not token:
-                    self.display_message("Не вдалося отримати токен доступу", "#dc2626")
-                    return
-                self.failed_attempts = 0
-                self.lock_until = None
-                if self.lock_job is not None:
-                    self.after_cancel(self.lock_job)
-                    self.lock_job = None
-                self.display_message("", "#d32f2f")
-                self.app.state_data.token = token
-                self.app.state_data.role = result.get("role", "viewer") or "viewer"
-                self.app.state_data.save()
-                OfflineQueue.sync_pending(token)
-                self.app.show_username()
-
-                self.after(0, finalize)
-
-        self.display_message("", "#d32f2f")
+        self.error_var.set("")
         self.set_loading(True)
         threading.Thread(target=worker, daemon=True).start()
-    def _register_failed_attempt(self, message: str) -> None:
-        self.failed_attempts += 1
-        remaining = self.max_attempts - self.failed_attempts
-        text = message
-        if remaining > 0:
-            text = f"{text}. Залишилось спроб: {remaining}"
-        self.display_message(text, "#dc2626")
-        if self.failed_attempts >= self.max_attempts:
-            self.failed_attempts = 0
-            self.lock_until = time.time() + self.lock_seconds
-            self.update_lock_message()
-
-    def _is_locked(self) -> bool:
-        if self.lock_until is None:
-            return False
-        remaining = int(self.lock_until - time.time())
-        if remaining <= 0:
-            self.lock_until = None
-            return False
-        self.display_message(f"Спробуйте через {remaining} с", "#f97316")
-        if self.lock_job is None:
-            self.lock_job = self.after(1000, self.update_lock_message)
-        return True
-
-    def update_lock_message(self) -> None:
-        self.lock_job = None
-        if self.lock_until is None:
-            return
-        remaining = int(self.lock_until - time.time())
-        if remaining <= 0:
-            self.lock_until = None
-            self.display_message("Блокування знято. Спробуйте ще раз.", "#16a34a")
-            return
-        self.display_message(f"Спробуйте через {remaining} с", "#f97316")
-        self.lock_job = self.after(1000, self.update_lock_message)
-
-
-class AdminApprovalFrame(BaseFrame):
-    ROLE_CHOICES = [
-        ("admin", "Адміністратор"),
-        ("support", "Підтримка"),
-        ("operator", "Оператор"),
-        ("viewer", "Перегляд"),
-    ]
-    ROLE_LABEL_BY_CODE = {code: label for code, label in ROLE_CHOICES}
-    ROLE_CODE_BY_LABEL = {label: code for code, label in ROLE_CHOICES}
-    STATUS_LABELS = {
-        "pending": "Очікує підтвердження",
-        "active": "Активний",
-        "rejected": "Відхилений",
-    }
-
-    def __init__(self, app: TrackingApp) -> None:
-        super().__init__(app)
-        self.requests: List[Dict[str, Any]] = []
-        self.status_var = tk.StringVar(value="Завантаження заявок...")
-        self.loading = False
-
-        wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=120, pady=80)
-        wrapper.grid(row=0, column=0, sticky="nsew")
-        wrapper.columnconfigure(0, weight=1)
-        wrapper.rowconfigure(0, weight=1)
-
-        card = tk.Frame(
-            wrapper,
-            bg=CARD_BG,
-            highlightbackground=NEUTRAL_BORDER,
-            highlightthickness=2,
-            bd=0,
-        )
-        card.grid(row=0, column=0, sticky="nsew")
-        card.columnconfigure(0, weight=1)
-        card.rowconfigure(1, weight=1)
-
-        header = tk.Frame(card, bg=ACCENT_COLOR, pady=20, padx=40)
-        header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
-        tk.Label(
-            header,
-            text="Адмін-панель заявок",
-            font=("Segoe UI", 32, "bold"),
-            fg="white",
-            bg=ACCENT_COLOR,
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            header,
-            text="Підтверджуйте нові реєстрації користувачів",
-            font=("Segoe UI", 14),
-            fg="#dbeafe",
-            bg=ACCENT_COLOR,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
-
-        content = tk.Frame(card, bg=CARD_BG, padx=60, pady=40)
-        content.grid(row=1, column=0, sticky="nsew")
-        content.columnconfigure(0, weight=1)
-        content.rowconfigure(1, weight=1)
-
-        toolbar = tk.Frame(content, bg=CARD_BG)
-        toolbar.grid(row=0, column=0, sticky="ew")
-        toolbar.columnconfigure(0, weight=1)
-        ttk.Button(
-            toolbar,
-            text="⬅ До входу",
-            command=self.app.show_login,
-            style="Secondary.TButton",
-        ).grid(row=0, column=0, padx=(0, 12), sticky="w")
-        ttk.Button(
-            toolbar,
-            text="Оновити",
-            command=self.load_requests,
-            style="Secondary.TButton",
-        ).grid(row=0, column=1, sticky="e")
-
-        self.requests_container = tk.Frame(content, bg=CARD_BG)
-        self.requests_container.grid(row=1, column=0, sticky="nsew", pady=(24, 12))
-
-        status_bar = tk.Frame(content, bg=CARD_BG)
-        status_bar.grid(row=2, column=0, sticky="ew")
-        tk.Label(
-            status_bar,
-            textvariable=self.status_var,
-            font=("Segoe UI", 12),
-            fg=TEXT_SECONDARY,
-            bg=CARD_BG,
-        ).pack(anchor="w")
-
-        self.load_requests()
-
-    def load_requests(self) -> None:
-        if self.loading:
-            return
-        self.loading = True
-        self.status_var.set("Завантаження заявок...")
-
-        def worker() -> None:
-            result = backend_client.get_admin_requests()
-            self.after(0, lambda: self._on_requests_loaded(result))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_requests_loaded(self, result: Dict[str, Any]) -> None:
-        self.loading = False
-        if not result.get("ok"):
-            message = result.get("message", "Не вдалося завантажити заявки")
-            self.status_var.set(message)
-            messagebox.showerror("Помилка", message)
-            return
-        self.requests = result.get("requests", [])
-        self._render_requests(self.requests)
-        if self.requests:
-            self.status_var.set(f"Очікує заявок: {len(self.requests)}")
-        else:
-            self.status_var.set("Нових заявок немає")
-
-    def _render_requests(self, requests: List[Dict[str, Any]]) -> None:
-        for child in self.requests_container.winfo_children():
-            child.destroy()
-
-        if not requests:
-            tk.Label(
-                self.requests_container,
-                text="Немає нових заявок",
-                font=("Segoe UI", 14),
-                fg=TEXT_SECONDARY,
-                bg=CARD_BG,
-            ).pack(pady=40)
-            return
-
-        for request in requests:
-            row = tk.Frame(
-                self.requests_container,
-                bg="#f8fafc",
-                highlightbackground=NEUTRAL_BORDER,
-                highlightthickness=1,
-                bd=0,
-                padx=18,
-                pady=12,
-            )
-            row.pack(fill="x", pady=8)
-            row.columnconfigure(0, weight=2)
-            row.columnconfigure(1, weight=1)
-            row.columnconfigure(2, weight=1)
-            row.columnconfigure(3, weight=1)
-
-            surname = request.get("surname", "")
-            status = request.get("status", "pending")
-            role_code = request.get("role", "operator")
-            tk.Label(
-                row,
-                text=surname,
-                font=("Segoe UI", 20, "bold"),
-                fg=TEXT_PRIMARY,
-                bg="#f8fafc",
-            ).grid(row=0, column=0, sticky="w")
-            tk.Label(
-                row,
-                text=f"Статус: {self.STATUS_LABELS.get(status, status)}",
-                font=("Segoe UI", 12),
-                fg=TEXT_SECONDARY,
-                bg="#f8fafc",
-            ).grid(row=1, column=0, sticky="w", pady=(6, 0))
-
-            role_label = self.ROLE_LABEL_BY_CODE.get(role_code, "Оператор")
-            role_var = tk.StringVar(value=role_label)
-            ttk.Label(
-                row,
-                text="Роль",
-                style="Card.TLabel",
-            ).grid(row=0, column=1, sticky="w", padx=(12, 0))
-            role_combo = ttk.Combobox(
-                row,
-                textvariable=role_var,
-                values=[label for _, label in self.ROLE_CHOICES],
-                state="readonly",
-            )
-            role_combo.grid(row=1, column=1, sticky="ew", padx=(12, 12))
-
-            ttk.Button(
-                row,
-                text="Підтвердити",
-                style="Primary.TButton",
-                command=lambda name=surname, var=role_var: self.submit_decision(
-                    name, "active", var.get()
-                ),
-            ).grid(row=0, column=2, rowspan=2, sticky="ew", padx=6)
-
-            ttk.Button(
-                row,
-                text="Відхилити",
-                style="Secondary.TButton",
-                command=lambda name=surname: self.submit_decision(name, "rejected", ""),
-            ).grid(row=0, column=3, rowspan=2, sticky="ew", padx=6)
-
-    def submit_decision(self, surname: str, status: str, role_label: str) -> None:
-        if self.loading:
-            return
-        role_code: Optional[str]
-        if status == "active":
-            role_code = self.ROLE_CODE_BY_LABEL.get(role_label, "operator")
-        else:
-            if not messagebox.askyesno(
-                "Підтвердження", f"Відхилити заявку користувача {surname}?"
-            ):
-                return
-            role_code = None
-        self.loading = True
-        self.status_var.set("Відправлення рішення...")
-
-        def worker() -> None:
-            result = backend_client.submit_admin_decision(
-                surname, status=status, role=role_code
-            )
-            self.after(0, lambda: self._after_decision(result))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _after_decision(self, result: Dict[str, Any]) -> None:
-        self.loading = False
-        if result.get("ok"):
-            message = result.get("message", "Рішення збережено")
-            self.status_var.set(message)
-            self.load_requests()
-        else:
-            message = result.get("message", "Не вдалося зберегти рішення")
-            self.status_var.set(message)
-            messagebox.showerror("Помилка", message)
 
 
 class UserNameFrame(BaseFrame):
@@ -1645,7 +919,9 @@ class ScannerFrame(BaseFrame):
         self.step_progress_var = tk.StringVar(value="Крок 1 з 2")
         self.step_title_var = tk.StringVar(value="Введіть BoxID")
 
-        self.role_info = get_role_info(app.state_data.role)
+        self.role_info = get_role_info(
+            app.state_data.access_level, app.state_data.last_password
+        )
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
@@ -1973,7 +1249,7 @@ class ScannerFrame(BaseFrame):
 class HistoryFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
-        self.role_info = get_role_info(app.state_data.role)
+        self.role_info = get_role_info(app.state_data.access_level, app.state_data.last_password)
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
@@ -2316,7 +1592,7 @@ class HistoryFrame(BaseFrame):
 class StatisticsFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
-        self.role_info = get_role_info(app.state_data.role)
+        self.role_info = get_role_info(app.state_data.access_level, app.state_data.last_password)
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
@@ -3020,7 +2296,7 @@ class StatisticsFrame(BaseFrame):
 class ErrorsFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
-        self.role_info = get_role_info(app.state_data.role)
+        self.role_info = get_role_info(app.state_data.access_level, app.state_data.last_password)
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
