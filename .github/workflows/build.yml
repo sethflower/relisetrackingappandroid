@@ -18,10 +18,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
-          pip install tk
 
       - name: Build EXE
-        run: pyinstaller --onefile --noconsole --hidden-import tkcalendar main.py
+        run: pyinstaller --onefile --hidden-import tkcalendar main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
