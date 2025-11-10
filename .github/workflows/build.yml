@@ -26,4 +26,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TrackingApp-win
-          path: dist/descop.exe
+          path: dist/main.exe
