@@ -5,12 +5,11 @@ import calendar
 import csv
 import json
 import threading
-import weakref
 from collections import defaultdict
 from dataclasses import dataclass, asdict, fields
 from datetime import datetime, date, time as dtime, timezone
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -37,36 +36,6 @@ ACCENT_HOVER = "#1e40af"
 TEXT_PRIMARY = "#0f172a"
 TEXT_SECONDARY = "#475569"
 NEUTRAL_BORDER = "#cbd5f5"
-
-def app_scale(value: float) -> int:
-    return TrackingApp.active().scale(value)
-
-
-def app_spacing(*values: float) -> int | Tuple[int, ...]:
-    return TrackingApp.active().spacing(*values)
-
-
-def app_font(size: int, weight: Optional[str] = None) -> Tuple[Any, ...]:
-    return TrackingApp.active().font(size, weight)
-
-
-def attach_tree_scaling(tree: ttk.Treeview, widths: Dict[str, int]) -> None:
-    app = TrackingApp.active()
-
-    def apply() -> None:
-        for column, width in widths.items():
-            try:
-                tree.column(column, width=app.scale(width))
-            except tk.TclError:
-                continue
-
-    def cleanup(_: tk.Event) -> None:
-        app.remove_scale_hook(apply)
-
-    app.add_scale_hook(apply)
-    tree.bind("<Destroy>", cleanup, add="+")
-    apply()
-
 
 MONTH_NAMES = [
     "",
@@ -485,13 +454,13 @@ def create_large_entry(
         textvariable=textvariable,
         show=show,
         justify=justify,
-        font=app_font(120, "bold"),
+        font=("Segoe UI", 120, "bold"),
         bg=CARD_BG,
         fg=TEXT_PRIMARY,
         insertbackground=TEXT_PRIMARY,
         relief="flat",
         bd=0,
-        highlightthickness=app_scale(2),
+        highlightthickness=2,
         highlightcolor=ACCENT_COLOR,
         highlightbackground=NEUTRAL_BORDER,
         disabledforeground="#94a3b8",
@@ -512,13 +481,13 @@ def create_form_entry(
         textvariable=textvariable,
         show=show,
         justify=justify,
-        font=app_font(32, "bold"),
+        font=("Segoe UI", 32, "bold"),
         bg=CARD_BG,
         fg=TEXT_PRIMARY,
         insertbackground=TEXT_PRIMARY,
         relief="flat",
         bd=0,
-        highlightthickness=app_scale(2),
+        highlightthickness=2,
         highlightcolor=ACCENT_COLOR,
         highlightbackground=NEUTRAL_BORDER,
         disabledforeground="#94a3b8",
@@ -534,10 +503,6 @@ class DatePickerDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Misc, initial: Optional[date] = None) -> None:
         super().__init__(parent)
-        if isinstance(parent, TrackingApp):
-            self.app = parent
-        else:
-            self.app = getattr(parent, "app", TrackingApp.active())
         self.configure(bg=CARD_BG)
         self.resizable(False, False)
         self.title("Оберіть дату")
@@ -552,12 +517,7 @@ class DatePickerDialog(tk.Toplevel):
         self._current_year = base.year
         self._current_month = base.month
 
-        container = tk.Frame(
-            self,
-            bg=CARD_BG,
-            padx=app_spacing(24),
-            pady=app_spacing(24),
-        )
+        container = tk.Frame(self, bg=CARD_BG, padx=24, pady=24)
         container.grid(row=0, column=0)
 
         header = tk.Frame(container, bg=CARD_BG)
@@ -570,7 +530,7 @@ class DatePickerDialog(tk.Toplevel):
             width=3,
             command=self._go_previous,
             style="Secondary.TButton",
-        ).grid(row=0, column=0, padx=app_spacing(0, 12))
+        ).grid(row=0, column=0, padx=(0, 12))
 
         self._title_var = tk.StringVar()
         ttk.Label(header, textvariable=self._title_var, style="CardHeading.TLabel").grid(
@@ -583,13 +543,13 @@ class DatePickerDialog(tk.Toplevel):
             width=3,
             command=self._go_next,
             style="Secondary.TButton",
-        ).grid(row=0, column=2, padx=app_spacing(12, 0))
+        ).grid(row=0, column=2, padx=(12, 0))
 
         self._days_frame = tk.Frame(container, bg=CARD_BG)
-        self._days_frame.grid(row=1, column=0, pady=app_spacing(16, 0))
+        self._days_frame.grid(row=1, column=0, pady=(16, 0))
 
         footer = tk.Frame(container, bg=CARD_BG)
-        footer.grid(row=2, column=0, pady=app_spacing(20, 0), sticky="ew")
+        footer.grid(row=2, column=0, pady=(20, 0), sticky="ew")
         footer.columnconfigure(0, weight=1)
         footer.columnconfigure(1, weight=1)
         footer.columnconfigure(2, weight=1)
@@ -599,26 +559,25 @@ class DatePickerDialog(tk.Toplevel):
             text="Сьогодні",
             command=self._select_today,
             style="Secondary.TButton",
-        ).grid(row=0, column=0, padx=app_spacing(6))
+        ).grid(row=0, column=0, padx=6)
 
         ttk.Button(
             footer,
             text="Очистити",
             command=self._clear,
             style="Secondary.TButton",
-        ).grid(row=0, column=1, padx=app_spacing(6))
+        ).grid(row=0, column=1, padx=6)
 
         ttk.Button(
             footer,
             text="Закрити",
             command=self._close,
             style="Secondary.TButton",
-        ).grid(row=0, column=2, padx=app_spacing(6))
+        ).grid(row=0, column=2, padx=6)
 
         self._render_days()
         self.protocol("WM_DELETE_WINDOW", self._close)
         self._center_over_parent(parent)
-        self.app.register_scalable(self)
 
     def _center_over_parent(self, parent: tk.Misc) -> None:
         self.update_idletasks()
@@ -643,23 +602,18 @@ class DatePickerDialog(tk.Toplevel):
             tk.Label(
                 self._days_frame,
                 text=name,
-                font=app_font(12, "bold"),
+                font=("Segoe UI", 12, "bold"),
                 bg=CARD_BG,
                 fg=TEXT_SECONDARY,
                 width=4,
-            ).grid(row=0, column=idx, padx=app_spacing(4), pady=app_spacing(4))
+            ).grid(row=0, column=idx, padx=4, pady=4)
 
         month_calendar = calendar.Calendar(firstweekday=0)
         for row, week in enumerate(month_calendar.monthdayscalendar(self._current_year, self._current_month), start=1):
             for col, day in enumerate(week):
                 if day == 0:
-                    spacer = tk.Frame(
-                        self._days_frame,
-                        width=app_scale(60),
-                        height=app_scale(40),
-                        bg=CARD_BG,
-                    )
-                    spacer.grid(row=row, column=col, padx=app_spacing(4), pady=app_spacing(4))
+                    spacer = tk.Frame(self._days_frame, width=60, height=40, bg=CARD_BG)
+                    spacer.grid(row=row, column=col, padx=4, pady=4)
                     continue
                 btn = ttk.Button(
                     self._days_frame,
@@ -668,7 +622,7 @@ class DatePickerDialog(tk.Toplevel):
                     command=lambda d=day: self._select_day(d),
                     style="Secondary.TButton",
                 )
-                btn.grid(row=row, column=col, padx=app_spacing(4), pady=app_spacing(4))
+                btn.grid(row=row, column=col, padx=4, pady=4)
 
     def _go_previous(self) -> None:
         month = self._current_month - 1
@@ -731,10 +685,6 @@ class TimePickerDialog(tk.Toplevel):
         initial: Optional[dtime] = None,
     ) -> None:
         super().__init__(parent)
-        if isinstance(parent, TrackingApp):
-            self.app = parent
-        else:
-            self.app = getattr(parent, "app", TrackingApp.active())
         self.configure(bg=CARD_BG)
         self.resizable(False, False)
         self.title(title)
@@ -745,19 +695,14 @@ class TimePickerDialog(tk.Toplevel):
         self.result: Optional[dtime] = initial
         self._cancelled = True
 
-        container = tk.Frame(
-            self,
-            bg=CARD_BG,
-            padx=app_spacing(24),
-            pady=app_spacing(24),
-        )
+        container = tk.Frame(self, bg=CARD_BG, padx=24, pady=24)
         container.grid(row=0, column=0)
 
         ttk.Label(
             container,
             text="Оберіть час",
             style="CardHeading.TLabel",
-        ).grid(row=0, column=0, columnspan=3, pady=app_spacing(0, 16))
+        ).grid(row=0, column=0, columnspan=3, pady=(0, 16))
 
         self._hour_var = tk.StringVar(
             value=f"{initial.hour:02d}" if initial else "00"
@@ -772,17 +717,17 @@ class TimePickerDialog(tk.Toplevel):
             to=23,
             wrap=True,
             textvariable=self._hour_var,
-            font=app_font(18, "bold"),
+            font=("Segoe UI", 18, "bold"),
             width=4,
             justify="center",
             state="readonly",
         )
-        hour_spin.grid(row=1, column=0, padx=app_spacing(6))
+        hour_spin.grid(row=1, column=0, padx=6)
 
         tk.Label(
             container,
             text=":",
-            font=app_font(18, "bold"),
+            font=("Segoe UI", 18, "bold"),
             bg=CARD_BG,
             fg=TEXT_PRIMARY,
         ).grid(row=1, column=1)
@@ -793,40 +738,39 @@ class TimePickerDialog(tk.Toplevel):
             to=59,
             wrap=True,
             textvariable=self._minute_var,
-            font=app_font(18, "bold"),
+            font=("Segoe UI", 18, "bold"),
             width=4,
             justify="center",
             state="readonly",
         )
-        minute_spin.grid(row=1, column=2, padx=app_spacing(6))
+        minute_spin.grid(row=1, column=2, padx=6)
 
         controls = tk.Frame(container, bg=CARD_BG)
-        controls.grid(row=2, column=0, columnspan=3, pady=app_spacing(20, 0))
+        controls.grid(row=2, column=0, columnspan=3, pady=(20, 0))
 
         ttk.Button(
             controls,
             text="Очистити",
             command=self._clear,
             style="Secondary.TButton",
-        ).grid(row=0, column=0, padx=app_spacing(6))
+        ).grid(row=0, column=0, padx=6)
 
         ttk.Button(
             controls,
             text="Застосувати",
             command=self._apply,
             style="Secondary.TButton",
-        ).grid(row=0, column=1, padx=app_spacing(6))
+        ).grid(row=0, column=1, padx=6)
 
         ttk.Button(
             controls,
             text="Закрити",
             command=self._close,
             style="Secondary.TButton",
-        ).grid(row=0, column=2, padx=app_spacing(6))
+        ).grid(row=0, column=2, padx=6)
 
         self.protocol("WM_DELETE_WINDOW", self._close)
         self._center_over_parent(parent)
-        self.app.register_scalable(self)
 
     def _center_over_parent(self, parent: tk.Misc) -> None:
         self.update_idletasks()
@@ -878,15 +822,6 @@ class BaseFrame(tk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-    def scale(self, value: float) -> int:
-        return self.app.scale(value)
-
-    def spacing(self, *values: float) -> int | Tuple[int, ...]:
-        return self.app.spacing(*values)
-
-    def font(self, size: int, weight: Optional[str] = None) -> Tuple[Any, ...]:
-        return self.app.font(size, weight)
-
     def perform_logout(self) -> None:
         if not messagebox.askyesno("Підтвердження", "Вийти з акаунту?"):
             return
@@ -896,11 +831,8 @@ class BaseFrame(tk.Frame):
 
 
 class TrackingApp(tk.Tk):
-    _instance: ClassVar[Optional["TrackingApp"]] = None
-    
     def __init__(self) -> None:
         super().__init__()
-        TrackingApp._instance = self
         self.title("TrackingApp Windows Edition")
         self.geometry("1280x800")
         self.minsize(1200, 720)
@@ -909,18 +841,11 @@ class TrackingApp(tk.Tk):
         self.grid_rowconfigure(0, weight=1)
         self._maximize()
 
-        self._resize_after_id: Optional[str] = None
-        self._scale = self._compute_scale(self.winfo_screenwidth(), self.winfo_screenheight())
-        self._apply_scaling()
-        
         self.state_data = AppState.load()
         self._current_frame: Optional[tk.Frame] = None
-        self._layout_registry: "weakref.WeakKeyDictionary[tk.Misc, Dict[str, Any]]" = weakref.WeakKeyDictionary()
-        self._scale_hooks: List[Callable[[], None]] = []
 
         self.style = ttk.Style(self)
         self._setup_styles()
-        self.bind("<Configure>", self._schedule_resize)
 
         if self.state_data.token and self.state_data.user_name:
             self.show_scanner()
@@ -940,233 +865,6 @@ class TrackingApp(tk.Tk):
             except tk.TclError:
                 self.attributes("-fullscreen", True)
 
-    def _schedule_resize(self, event: tk.Event) -> None:
-        if event.widget is not self:
-            return
-        if self._resize_after_id is not None:
-            self.after_cancel(self._resize_after_id)
-        width, height = event.width, event.height
-        self._resize_after_id = self.after(120, lambda: self._handle_resize(width, height))
-
-    def _handle_resize(self, width: int, height: int) -> None:
-        self._resize_after_id = None
-        new_scale = self._compute_scale(width, height)
-        if abs(new_scale - self._scale) < 0.05:
-            return
-        self._scale = new_scale
-        self._apply_scaling()
-        self._setup_styles()
-        self._update_registered_layouts()
-        self._run_scale_hooks()
-
-    def _apply_scaling(self) -> None:
-        try:
-            self.tk.call("tk", "scaling", self._scale)
-        except tk.TclError:
-            pass
-
-    def _compute_scale(self, width: int, height: int) -> float:
-        base_width, base_height = 1280, 800
-        scale_w = width / base_width
-        scale_h = height / base_height
-        scale = min(scale_w, scale_h)
-        return max(0.85, min(1.4, scale))
-
-    @classmethod
-    def active(cls) -> "TrackingApp":
-        if cls._instance is None:
-            raise RuntimeError("TrackingApp has not been initialised yet")
-        return cls._instance
-
-    def scale(self, value: float) -> int:
-        if value <= 0:
-            return 0
-        return max(1, int(round(value * self._scale)))
-
-    def spacing(self, *values: float) -> int | Tuple[int, ...]:
-        scaled = tuple(self.scale(value) for value in values)
-        if len(scaled) == 1:
-            return scaled[0]
-        return scaled
-
-    def _scaled(self, value: float) -> int:
-        return self.scale(value)
-
-    def _font(self, size: int, weight: Optional[str] = None) -> Tuple[Any, ...]:
-        args: List[Any] = ["Segoe UI", max(8, self._scaled(size))]
-        if weight:
-            args.append(weight)
-        return tuple(args)
-
-    def font(self, size: int, weight: Optional[str] = None) -> Tuple[Any, ...]:
-        return self._font(size, weight)
-
-    def register_scalable(self, widget: tk.Misc) -> None:
-        self._capture_layout(widget)
-        self._update_registered_layouts()
-        self._run_scale_hooks()
-
-    def add_scale_hook(self, hook: Callable[[], None]) -> None:
-        if hook not in self._scale_hooks:
-            self._scale_hooks.append(hook)
-
-    def remove_scale_hook(self, hook: Callable[[], None]) -> None:
-        if hook in self._scale_hooks:
-            self._scale_hooks.remove(hook)
-
-    def _capture_layout(self, widget: tk.Misc) -> None:
-        if widget in self._layout_registry or not widget.winfo_exists():
-            return
-        layout: Dict[str, Any] = {}
-        manager = widget.winfo_manager()
-        if manager == "grid":
-            info = widget.grid_info()
-            layout["grid"] = {
-                "padx": self._normalize_pad(info.get("padx")),
-                "pady": self._normalize_pad(info.get("pady")),
-                "ipadx": self._normalize_scalar(info.get("ipadx")),
-                "ipady": self._normalize_scalar(info.get("ipady")),
-            }
-        elif manager == "pack":
-            info = widget.pack_info()
-            layout["pack"] = {
-                "padx": self._normalize_pad(info.get("padx")),
-                "pady": self._normalize_pad(info.get("pady")),
-                "ipadx": self._normalize_scalar(info.get("ipadx")),
-                "ipady": self._normalize_scalar(info.get("ipady")),
-            }
-        config_updates: Dict[str, Any] = {}
-        for key in ("padx", "pady", "ipadx", "ipady", "highlightthickness", "borderwidth", "wraplength"):
-            if key not in widget.keys():
-                continue
-            value = widget.cget(key)
-            if key in {"padx", "pady"}:
-                config_updates[key] = self._normalize_pad(value)
-            else:
-                config_updates[key] = self._normalize_scalar(value)
-        if config_updates:
-            layout["config"] = config_updates
-        self._layout_registry[widget] = layout
-        for child in widget.winfo_children():
-            self._capture_layout(child)
-
-    def _update_registered_layouts(self) -> None:
-        dead: List[tk.Misc] = []
-        for widget, layout in self._layout_registry.items():
-            if not widget.winfo_exists():
-                dead.append(widget)
-                continue
-            manager = widget.winfo_manager()
-            if manager == "grid" and "grid" in layout:
-                params: Dict[str, Any] = {}
-                grid_layout = layout["grid"]
-                if grid_layout.get("padx") is not None:
-                    params["padx"] = self._scale_pad(grid_layout["padx"])
-                if grid_layout.get("pady") is not None:
-                    params["pady"] = self._scale_pad(grid_layout["pady"])
-                if grid_layout.get("ipadx") is not None:
-                    params["ipadx"] = self._scale_scalar(grid_layout["ipadx"])
-                if grid_layout.get("ipady") is not None:
-                    params["ipady"] = self._scale_scalar(grid_layout["ipady"])
-                if params:
-                    widget.grid_configure(**params)
-            elif manager == "pack" and "pack" in layout:
-                params = {}
-                pack_layout = layout["pack"]
-                if pack_layout.get("padx") is not None:
-                    params["padx"] = self._scale_pad(pack_layout["padx"])
-                if pack_layout.get("pady") is not None:
-                    params["pady"] = self._scale_pad(pack_layout["pady"])
-                if pack_layout.get("ipadx") is not None:
-                    params["ipadx"] = self._scale_scalar(pack_layout["ipadx"])
-                if pack_layout.get("ipady") is not None:
-                    params["ipady"] = self._scale_scalar(pack_layout["ipady"])
-                if params:
-                    widget.pack_configure(**params)
-            if "config" in layout:
-                updates: Dict[str, Any] = {}
-                for key, original in layout["config"].items():
-                    if original is None:
-                        continue
-                    if key in {"padx", "pady"}:
-                        updates[key] = self._scale_pad(original)
-                    elif key in {"ipadx", "ipady"}:
-                        updates[key] = self._scale_scalar(original)
-                    else:
-                        updates[key] = self._scale_scalar(original)
-                if updates:
-                    widget.configure(**updates)
-        for widget in dead:
-            self._layout_registry.pop(widget, None)
-
-    def _run_scale_hooks(self) -> None:
-        for hook in list(self._scale_hooks):
-            try:
-                hook()
-            except Exception:
-                continue
-
-    def _normalize_pad(self, value: Any) -> Optional[Tuple[Tuple[float, float], bool]]:
-        if value in (None, ""):
-            return None
-
-        parsed: Tuple[float, float]
-        is_tuple = False
-
-        if isinstance(value, str):
-            parts = value.split()
-            if len(parts) == 1:
-                number = float(parts[0])
-                parsed = (number, number)
-            else:
-                parsed = (float(parts[0]), float(parts[1]))
-                is_tuple = True
-        elif isinstance(value, (list, tuple)):
-            if len(value) == 1:
-                number = float(value[0])
-                parsed = (number, number)
-            else:
-                parsed = (float(value[0]), float(value[1]))
-                is_tuple = True
-        else:
-            try:
-                number = float(value)
-            except (TypeError, ValueError):
-                text = str(value).strip()
-                if not text:
-                    return None
-                parts = text.split()
-                if len(parts) == 1:
-                    number = float(parts[0])
-                    parsed = (number, number)
-                else:
-                    parsed = (float(parts[0]), float(parts[1]))
-                    is_tuple = True
-            else:
-                parsed = (number, number)
-        return parsed, is_tuple
-
-    def _normalize_scalar(self, value: Any) -> Optional[float]:
-        if value in (None, ""):
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _scale_pad(self, data: Tuple[Tuple[float, float], bool]) -> Tuple[int, int]:
-        (first, second), is_tuple = data
-        scaled = (self.scale(first), self.scale(second))
-        if not is_tuple and scaled[0] == scaled[1]:
-            return scaled[0], scaled[1]  # всегда кортеж
-        return scaled
-
-
-    def _scale_scalar(self, value: Optional[float]) -> Optional[int]:
-        if value is None:
-            return None
-        return self.scale(value)
-
     def _setup_styles(self) -> None:
         try:
             self.style.theme_use("clam")
@@ -1175,32 +873,32 @@ class TrackingApp(tk.Tk):
 
         self.style.configure(
             "TLabel",
-            font=self._font(12),
+            font=("Segoe UI", 12),
             background=PRIMARY_BG,
             foreground="#e2e8f0",
         )
         self.style.configure(
             "Card.TLabel",
-            font=self._font(12),
+            font=("Segoe UI", 12),
             background=CARD_BG,
             foreground=TEXT_SECONDARY,
         )
         self.style.configure(
             "CardHeading.TLabel",
-            font=self._font(28, "bold"),
+            font=("Segoe UI", 28, "bold"),
             background=CARD_BG,
             foreground=TEXT_PRIMARY,
         )
         self.style.configure(
             "CardSubheading.TLabel",
-            font=self._font(14),
+            font=("Segoe UI", 14),
             background=CARD_BG,
             foreground=TEXT_SECONDARY,
         )
         self.style.configure(
             "Primary.TButton",
-            font=self._font(14, "bold"),
-            padding=(self._scaled(24), self._scaled(12)),
+            font=("Segoe UI", 14, "bold"),
+            padding=(24, 12),
             background=ACCENT_COLOR,
             foreground="white",
             borderwidth=0,
@@ -1212,8 +910,8 @@ class TrackingApp(tk.Tk):
         )
         self.style.configure(
             "Secondary.TButton",
-            font=self._font(12, "bold"),
-            padding=(self._scaled(18), self._scaled(10)),
+            font=("Segoe UI", 12, "bold"),
+            padding=(18, 10),
             background="#1f2937",
             foreground="#f8fafc",
             borderwidth=0,
@@ -1225,13 +923,13 @@ class TrackingApp(tk.Tk):
         )
         self.style.configure(
             "TEntry",
-            font=self._font(16),
-            padding=self._scaled(10),
+            font=("Segoe UI", 16),
+            padding=10,
         )
         self.style.configure(
             "Treeview",
-            font=self._font(12),
-            rowheight=self._scaled(36),
+            font=("Segoe UI", 12),
+            rowheight=36,
             fieldbackground="#f8fafc",
             background="#f8fafc",
             foreground=TEXT_PRIMARY,
@@ -1239,7 +937,7 @@ class TrackingApp(tk.Tk):
         )
         self.style.configure(
             "Treeview.Heading",
-            font=self._font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             padding=12,
             background=ACCENT_COLOR,
             foreground="white",
@@ -1256,7 +954,6 @@ class TrackingApp(tk.Tk):
         frame = frame_cls(self)
         frame.grid(row=0, column=0, sticky="nsew")
         self._current_frame = frame
-        self.register_scalable(frame)
 
     def show_login(self) -> None:
         self.switch_to(LoginFrame)
@@ -1306,12 +1003,7 @@ class LoginFrame(BaseFrame):
         self._build_layout()
 
     def _build_layout(self) -> None:
-        wrapper = tk.Frame(
-            self,
-            bg=PRIMARY_BG,
-            padx=self.spacing(120),
-            pady=self.spacing(120),
-        )
+        wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=120, pady=120)
         wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.columnconfigure(0, weight=1)
         wrapper.rowconfigure(0, weight=1)
@@ -1320,41 +1012,31 @@ class LoginFrame(BaseFrame):
             wrapper,
             bg=CARD_BG,
             highlightbackground=NEUTRAL_BORDER,
-            highlightthickness=app_scale(2),
+            highlightthickness=2,
             bd=0,
         )
         card.grid(row=0, column=0, sticky="nsew")
         card.columnconfigure(0, weight=1)
 
-        header = tk.Frame(
-            card,
-            bg=ACCENT_COLOR,
-            pady=self.spacing(20),
-            padx=self.spacing(40),
-        )
+        header = tk.Frame(card, bg=ACCENT_COLOR, pady=20, padx=40)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
         tk.Label(
             header,
             text="TrackingApp",
-            font=self.font(36, "bold"),
+            font=("Segoe UI", 36, "bold"),
             fg="white",
             bg=ACCENT_COLOR,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             header,
             text="Корпоративна панель управління",
-            font=self.font(14),
+            font=("Segoe UI", 14),
             fg="#dbeafe",
             bg=ACCENT_COLOR,
-        ).grid(row=1, column=0, sticky="w", pady=self.spacing(4, 0))
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-        content = tk.Frame(
-            card,
-            bg=CARD_BG,
-            padx=self.spacing(80),
-            pady=self.spacing(60),
-        )
+        content = tk.Frame(card, bg=CARD_BG, padx=80, pady=60)
         content.grid(row=1, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
 
@@ -1369,10 +1051,10 @@ class LoginFrame(BaseFrame):
             text="Увійдіть або надішліть заявку на реєстрацію",
             style="CardSubheading.TLabel",
             anchor="center",
-        ).grid(row=1, column=0, sticky="ew", pady=self.spacing(4, 30))
+        ).grid(row=1, column=0, sticky="ew", pady=(4, 30))
 
         switcher = tk.Frame(content, bg=CARD_BG)
-        switcher.grid(row=2, column=0, sticky="ew", pady=self.spacing(0, 24))
+        switcher.grid(row=2, column=0, sticky="ew", pady=(0, 24))
         switcher.columnconfigure(0, weight=1)
         switcher.columnconfigure(1, weight=1)
 
@@ -1382,7 +1064,7 @@ class LoginFrame(BaseFrame):
             style="Secondary.TButton",
             command=lambda: self.set_mode("login"),
         )
-        self.login_tab.grid(row=0, column=0, padx=self.spacing(6), sticky="ew")
+        self.login_tab.grid(row=0, column=0, padx=6, sticky="ew")
 
         self.register_tab = ttk.Button(
             switcher,
@@ -1390,7 +1072,7 @@ class LoginFrame(BaseFrame):
             style="Secondary.TButton",
             command=lambda: self.set_mode("register"),
         )
-        self.register_tab.grid(row=0, column=1, padx=self.spacing(6), sticky="ew")
+        self.register_tab.grid(row=0, column=1, padx=6, sticky="ew")
 
         self.forms_container = tk.Frame(content, bg=CARD_BG)
         self.forms_container.grid(row=3, column=0, sticky="nsew")
@@ -1400,28 +1082,22 @@ class LoginFrame(BaseFrame):
         self.register_form = self._build_registration_form(self.forms_container)
 
         footer = tk.Frame(card, bg=CARD_BG, pady=20)
-        footer = tk.Frame(card, bg=CARD_BG, pady=self.spacing(20))
+        footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         ttk.Button(
             footer,
             text="Панель адміністратора",
             style="Secondary.TButton",
             command=self.open_admin_panel,
-        ).grid(
-            row=0,
-            column=0,
-            pady=self.spacing(0, 12),
-            padx=self.spacing(12),
-            sticky="e",
-        )
+        ).grid(row=0, column=0, pady=(0, 12), padx=12, sticky="e")
         tk.Label(
             footer,
             text="TrackingApp by DimonVR",
-            font=self.font(12),
+            font=("Segoe UI", 12),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
-        ).grid(row=1, column=0, sticky="e", padx=self.spacing(12))
-        
+        ).grid(row=1, column=0, sticky="e", padx=12)
+
         self.set_mode(self.mode.get())
 
     def _build_login_form(self, parent: tk.Misc) -> tk.Frame:
@@ -1431,54 +1107,37 @@ class LoginFrame(BaseFrame):
         tk.Label(
             frame,
             text="Прізвище",
-            font=self.font(14, "bold"),
+            font=("Segoe UI", 14, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
         surname_entry = create_form_entry(
             frame, textvariable=self.login_surname_var, justify="left"
         )
-        surname_entry.grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(8, 20),
-            ipady=self.scale(10),
-        )
+        surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 20), ipady=10)
         surname_entry.bind("<Return>", lambda _: self.login())
 
         tk.Label(
             frame,
             text="Пароль",
-            font=self.font(14, "bold"),
+            font=("Segoe UI", 14, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=2, column=0, sticky="w")
         password_entry = create_form_entry(
             frame, textvariable=self.login_password_var, show="*", justify="left"
         )
-        password_entry.grid(
-            row=3,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(8, 8),
-            ipady=self.scale(10),
-        )
+        password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 8), ipady=10)
         password_entry.bind("<Return>", lambda _: self.login())
 
         self.login_error_label = tk.Label(
             frame,
             textvariable=self.login_error_var,
-            font=self.font(12),
+            font=("Segoe UI", 12),
             fg="#d32f2f",
             bg=CARD_BG,
         )
-        self.login_error_label.grid(
-            row=4,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(4, 0),
-        )
+        self.login_error_label.grid(row=4, column=0, sticky="ew", pady=(4, 0))
 
         self.login_button = ttk.Button(
             frame,
@@ -1486,12 +1145,7 @@ class LoginFrame(BaseFrame):
             style="Primary.TButton",
             command=self.login,
         )
-        self.login_button.grid(
-            row=5,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(24, 0),
-        )
+        self.login_button.grid(row=5, column=0, sticky="ew", pady=(24, 0))
 
         self.login_surname_entry = surname_entry
         return frame
@@ -1503,75 +1157,52 @@ class LoginFrame(BaseFrame):
         tk.Label(
             frame,
             text="Прізвище",
-            font=self.font(14, "bold"),
+            font=("Segoe UI", 14, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
         surname_entry = create_form_entry(
             frame, textvariable=self.register_surname_var, justify="left"
         )
-        surname_entry.grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(8, 16),
-            ipady=self.scale(10),
-        )
+        surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 16), ipady=10)
         surname_entry.bind("<Return>", lambda _: self.register())
 
         tk.Label(
             frame,
             text="Пароль",
-            font=self.font(14, "bold"),
+            font=("Segoe UI", 14, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=2, column=0, sticky="w")
         password_entry = create_form_entry(
             frame, textvariable=self.register_password_var, show="*", justify="left"
         )
-        password_entry.grid(
-            row=3,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(8, 16),
-            ipady=self.scale(10),
-        )
+        password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 16), ipady=10)
         password_entry.bind("<Return>", lambda _: self.register())
 
         tk.Label(
             frame,
             text="Підтвердження пароля",
-            font=self.font(14, "bold"),
+            font=("Segoe UI", 14, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=4, column=0, sticky="w")
         confirm_entry = create_form_entry(
             frame, textvariable=self.register_confirm_var, show="*", justify="left"
         )
-        confirm_entry.grid(
-            row=5,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(8, 8),
-            ipady=self.scale(10),
-        )
+        confirm_entry.grid(row=5, column=0, sticky="ew", pady=(8, 8), ipady=10)
         confirm_entry.bind("<Return>", lambda _: self.register())
 
         self.register_feedback_label = tk.Label(
             frame,
             textvariable=self.register_message_var,
-            font=self.font(12),
+            font=("Segoe UI", 12),
             fg="#16a34a",
             bg=CARD_BG,
-            wraplength=self.scale(540),
+            wraplength=540,
             justify="left",
         )
-        self.register_feedback_label.grid(
-            row=6,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(4, 0),
-        )
+        self.register_feedback_label.grid(row=6, column=0, sticky="ew", pady=(4, 0))
 
         self.register_button = ttk.Button(
             frame,
@@ -1579,12 +1210,7 @@ class LoginFrame(BaseFrame):
             style="Primary.TButton",
             command=self.register,
         )
-        self.register_button.grid(
-            row=7,
-            column=0,
-            sticky="ew",
-            pady=self.spacing(24, 0),
-        )
+        self.register_button.grid(row=7, column=0, sticky="ew", pady=(24, 0))
 
         self.register_surname_entry = surname_entry
         return frame
@@ -1808,15 +1434,6 @@ class AdminPanelWindow(tk.Toplevel):
         self.pending_users: List[PendingUser] = []
         self.managed_users: List[ManagedUser] = []
         self.role_passwords: Dict[UserRole, str] = {}
-        self._pending_widths = {"surname": 280, "created": 200}
-        self._users_widths = {
-            "surname": 220,
-            "role": 140,
-            "active": 140,
-            "created": 160,
-            "updated": 160,
-        }
-        self._password_widths = {"role": 200, "password": 320}
 
         header = tk.Frame(self, bg=SECONDARY_BG, padx=32, pady=20)
         header.grid(row=0, column=0, sticky="ew")
@@ -1826,14 +1443,14 @@ class AdminPanelWindow(tk.Toplevel):
         tk.Label(
             header,
             text="Панель адміністратора",
-            font=self.app.font(28, "bold"),
+            font=("Segoe UI", 28, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             header,
             text="Керуйте користувачами та запитами на реєстрацію",
-            font=self.app.font(12),
+            font=("Segoe UI", 12),
             fg="#cbd5f5",
             bg=SECONDARY_BG,
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -1870,14 +1487,12 @@ class AdminPanelWindow(tk.Toplevel):
         tk.Label(
             status_bar,
             textvariable=self.status_var,
-            font=self.app.font(12),
+            font=("Segoe UI", 12),
             fg="#e2e8f0",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="w")
 
         self.refresh_data()
-        self.app.register_scalable(self)
-        
 
     def _build_pending_tab(self, parent: tk.Misc) -> None:
         parent.columnconfigure(0, weight=1)
@@ -1903,14 +1518,9 @@ class AdminPanelWindow(tk.Toplevel):
         )
         self.pending_tree.heading("surname", text="Прізвище")
         self.pending_tree.heading("created", text="Створено")
-        self.pending_tree.column(
-            "surname", width=self.app.scale(self._pending_widths["surname"])
-        )
-        self.pending_tree.column(
-            "created", width=self.app.scale(self._pending_widths["created"])
-        )
+        self.pending_tree.column("surname", width=280)
+        self.pending_tree.column("created", width=200)
         self.pending_tree.grid(row=0, column=0, sticky="nsew")
-        attach_tree_scaling(self.pending_tree, self._pending_widths)
 
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.pending_tree.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -1974,12 +1584,17 @@ class AdminPanelWindow(tk.Toplevel):
             "created": "Створено",
             "updated": "Оновлено",
         }
-        widths = self._users_widths
+        widths = {
+            "surname": 220,
+            "role": 140,
+            "active": 140,
+            "created": 160,
+            "updated": 160,
+        }
         for key in columns:
             self.users_tree.heading(key, text=headings[key])
-            self.users_tree.column(key, width=self.app.scale(widths[key]))
+            self.users_tree.column(key, width=widths[key])
         self.users_tree.grid(row=0, column=0, sticky="nsew")
-        attach_tree_scaling(self.users_tree, self._users_widths)
 
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.users_tree.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -2044,14 +1659,9 @@ class AdminPanelWindow(tk.Toplevel):
         )
         self.passwords_tree.heading("role", text="Роль")
         self.passwords_tree.heading("password", text="Поточний пароль")
-        self.passwords_tree.column(
-            "role", width=self.app.scale(self._password_widths["role"])
-        )
-        self.passwords_tree.column(
-            "password", width=self.app.scale(self._password_widths["password"])
-        )
+        self.passwords_tree.column("role", width=200)
+        self.passwords_tree.column("password", width=320)
         self.passwords_tree.grid(row=0, column=0, sticky="nsew")
-        attach_tree_scaling(self.passwords_tree, self._password_widths)
 
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.passwords_tree.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -2417,14 +2027,14 @@ class UserNameFrame(BaseFrame):
         tk.Label(
             header,
             text="Профіль оператора",
-            font=self.font(28, "bold"),
+            font=("Segoe UI", 28, "bold"),
             fg="white",
             bg=ACCENT_COLOR,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             header,
             text="Вкажіть, хто працює із системою",
-            font=self.font(13),
+            font=("Segoe UI", 13),
             fg="#dbeafe",
             bg=ACCENT_COLOR,
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -2450,7 +2060,7 @@ class UserNameFrame(BaseFrame):
         tk.Label(
             input_block,
             text="Ім’я користувача",
-            font=self.font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
@@ -2512,14 +2122,14 @@ class ScannerFrame(BaseFrame):
         tk.Label(
             header,
             text="TrackingApp",
-            font=self.font(30, "bold"),
+            font=("Segoe UI", 30, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             header,
             text="Корпоративна система відстеження",
-            font=self.font(12),
+            font=("Segoe UI", 12),
             fg="#cbd5f5",
             bg=SECONDARY_BG,
         ).grid(row=1, column=0, sticky="w")
@@ -2530,7 +2140,7 @@ class ScannerFrame(BaseFrame):
         self.online_chip = tk.Label(
             connection,
             textvariable=self.online_var,
-            font=self.font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             bg=self.online_color,
             fg=TEXT_PRIMARY,
             padx=18,
@@ -2543,14 +2153,14 @@ class ScannerFrame(BaseFrame):
         tk.Label(
             user_info,
             text=app.state_data.user_name,
-            font=self.font(18, "bold"),
+            font=("Segoe UI", 18, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="e")
         tk.Label(
             user_info,
             text=self.role_info["label"],
-            font=self.font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg="white",
             bg=self.role_info["color"],
             padx=12,
@@ -2663,10 +2273,10 @@ class ScannerFrame(BaseFrame):
         tk.Label(
             status_panel,
             textvariable=self.status_var,
-            font=self.font(14),
+            font=("Segoe UI", 14),
             fg=TEXT_SECONDARY,
             bg="#f8fafc",
-            wraplength=self.scale(1200),
+            wraplength=1200,
             justify="center",
         ).grid(row=0, column=0, sticky="ew")
 
@@ -2689,7 +2299,7 @@ class ScannerFrame(BaseFrame):
         tk.Label(
             frame,
             text=title,
-            font=self.font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
@@ -2842,14 +2452,14 @@ class HistoryFrame(BaseFrame):
         tk.Label(
             branding,
             text="Історія операцій",
-            font=self.font(26, "bold"),
+            font=("Segoe UI", 26, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             branding,
             text="Переглядайте та фільтруйте всі записані відправлення",
-            font=self.font(12),
+            font=("Segoe UI", 12),
             fg="#cbd5f5",
             bg=SECONDARY_BG,
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -2859,14 +2469,14 @@ class HistoryFrame(BaseFrame):
         tk.Label(
             user_info,
             text=app.state_data.user_name,
-            font=self.font(18, "bold"),
+            font=("Segoe UI", 18, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="e")
         tk.Label(
             user_info,
             text=self.role_info["label"],
-            font=self.font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg="white",
             bg=self.role_info["color"],
             padx=12,
@@ -2981,16 +2591,9 @@ class HistoryFrame(BaseFrame):
             "user": "Користувач",
             "note": "Примітка",
         }
-        self._tree_widths = {
-            "datetime": 200,
-            "boxid": 160,
-            "ttn": 160,
-            "user": 160,
-            "note": 220,
-        }
         for col, text in headings.items():
             self.tree.heading(col, text=text)
-            self.tree.column(col, width=self.app.scale(self._tree_widths[col]), anchor="center")
+            self.tree.column(col, width=200 if col == "datetime" else 160, anchor="center")
 
         vsb = ttk.Scrollbar(tree_container, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_container, orient="horizontal", command=self.tree.xview)
@@ -2998,7 +2601,6 @@ class HistoryFrame(BaseFrame):
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
-        attach_tree_scaling(self.tree, self._tree_widths)
 
         self.records: List[Dict[str, Any]] = []
         self.filtered: List[Dict[str, Any]] = []
@@ -3011,7 +2613,7 @@ class HistoryFrame(BaseFrame):
         tk.Label(
             frame,
             text=label,
-            font=self.font(11, "bold"),
+            font=("Segoe UI", 11, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
@@ -3221,14 +2823,14 @@ class StatisticsFrame(BaseFrame):
         tk.Label(
             branding,
             text="Аналітика сканувань",
-            font=self.font(26, "bold"),
+            font=("Segoe UI", 26, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             branding,
             text="Переглядайте продуктивність команди та помилки за обраний період",
-            font=self.font(12),
+            font=("Segoe UI", 12),
             fg="#cbd5f5",
             bg=SECONDARY_BG,
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -3238,14 +2840,14 @@ class StatisticsFrame(BaseFrame):
         tk.Label(
             user_info,
             text=app.state_data.user_name,
-            font=self.font(18, "bold"),
+            font=("Segoe UI", 18, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="e")
         tk.Label(
             user_info,
             text=self.role_info["label"],
-            font=self.font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg="white",
             bg=self.role_info["color"],
             padx=12,
@@ -3379,17 +2981,12 @@ class StatisticsFrame(BaseFrame):
         self.scan_tree = ttk.Treeview(scans_section, columns=scan_columns, show="headings", height=10)
         self.scan_tree.heading("user", text="Користувач")
         self.scan_tree.heading("count", text="Кількість")
-        self._scan_widths = {"user": 240, "count": 120}
-        self.scan_tree.column("user", width=self.app.scale(self._scan_widths["user"]), anchor="w")
-        self.scan_tree.column(
-            "count", width=self.app.scale(self._scan_widths["count"]), anchor="center"
-        )
+        self.scan_tree.column("user", width=240, anchor="w")
+        self.scan_tree.column("count", width=120, anchor="center")
         self.scan_tree.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
         scan_scroll = ttk.Scrollbar(scans_section, orient="vertical", command=self.scan_tree.yview)
         scan_scroll.grid(row=1, column=1, sticky="ns", pady=(12, 0))
         self.scan_tree.configure(yscrollcommand=scan_scroll.set)
-        attach_tree_scaling(self.scan_tree, self._scan_widths)
-
 
         errors_section = tk.Frame(
             tables,
@@ -3410,17 +3007,12 @@ class StatisticsFrame(BaseFrame):
         self.error_tree = ttk.Treeview(errors_section, columns=error_columns, show="headings", height=10)
         self.error_tree.heading("user", text="Користувач")
         self.error_tree.heading("count", text="Кількість")
-        self._error_widths = {"user": 240, "count": 120}
-        self.error_tree.column("user", width=self.app.scale(self._error_widths["user"]), anchor="w")
-        self.error_tree.column(
-            "count", width=self.app.scale(self._error_widths["count"]), anchor="center"
-        )
+        self.error_tree.column("user", width=240, anchor="w")
+        self.error_tree.column("count", width=120, anchor="center")
         self.error_tree.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
         error_scroll = ttk.Scrollbar(errors_section, orient="vertical", command=self.error_tree.yview)
         error_scroll.grid(row=1, column=1, sticky="ns", pady=(12, 0))
         self.error_tree.configure(yscrollcommand=error_scroll.set)
-        attach_tree_scaling(self.error_tree, self._error_widths)
-
 
         timeline_section = tk.Frame(
             tables,
@@ -3451,40 +3043,15 @@ class StatisticsFrame(BaseFrame):
         self.timeline_tree.heading("error_count", text="Помилки")
         self.timeline_tree.heading("top_scan", text="Лідер")
         self.timeline_tree.heading("top_error", text="Найбільше помилок")
-        self._timeline_widths = {
-            "date": 140,
-            "scan_count": 120,
-            "error_count": 120,
-            "top_scan": 220,
-            "top_error": 220,
-        }
-        self.timeline_tree.column(
-            "date", width=self.app.scale(self._timeline_widths["date"]), anchor="center"
-        )
-        self.timeline_tree.column(
-            "scan_count",
-            width=self.app.scale(self._timeline_widths["scan_count"]),
-            anchor="center",
-        )
-        self.timeline_tree.column(
-            "error_count",
-            width=self.app.scale(self._timeline_widths["error_count"]),
-            anchor="center",
-        )
-        self.timeline_tree.column(
-            "top_scan", width=self.app.scale(self._timeline_widths["top_scan"]), anchor="w"
-        )
-        self.timeline_tree.column(
-            "top_error",
-            width=self.app.scale(self._timeline_widths["top_error"]),
-            anchor="w",
-        )
+        self.timeline_tree.column("date", width=140, anchor="center")
+        self.timeline_tree.column("scan_count", width=120, anchor="center")
+        self.timeline_tree.column("error_count", width=120, anchor="center")
+        self.timeline_tree.column("top_scan", width=220, anchor="w")
+        self.timeline_tree.column("top_error", width=220, anchor="w")
         self.timeline_tree.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
         timeline_scroll = ttk.Scrollbar(timeline_section, orient="vertical", command=self.timeline_tree.yview)
         timeline_scroll.grid(row=1, column=1, sticky="ns", pady=(12, 0))
         self.timeline_tree.configure(yscrollcommand=timeline_scroll.set)
-        attach_tree_scaling(self.timeline_tree, self._timeline_widths)
-
 
         self._update_period_label()
         self.fetch_data()
@@ -3503,14 +3070,14 @@ class StatisticsFrame(BaseFrame):
         tk.Label(
             container,
             text=title,
-            font=self.font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg=TEXT_PRIMARY,
             bg="#e2e8f0",
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             container,
             textvariable=variable,
-            font=self.font(36, "bold"),
+            font=("Segoe UI", 36, "bold"),
             fg=TEXT_PRIMARY,
             bg="#e2e8f0",
         ).grid(row=1, column=0, sticky="w", pady=(8, 0))
@@ -3539,28 +3106,28 @@ class StatisticsFrame(BaseFrame):
         tk.Label(
             container,
             text=title,
-            font=self.font(13, "bold"),
+            font=("Segoe UI", 13, "bold"),
             fg=TEXT_PRIMARY,
             bg="#f1f5f9",
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             container,
             textvariable=name_var,
-            font=self.font(20, "bold"),
+            font=("Segoe UI", 20, "bold"),
             fg=ACCENT_COLOR,
             bg="#f1f5f9",
         ).grid(row=1, column=0, sticky="w", pady=(6, 0))
         tk.Label(
             container,
             textvariable=count_var,
-            font=self.font(14, "bold"),
+            font=("Segoe UI", 14, "bold"),
             fg=TEXT_SECONDARY,
             bg="#f1f5f9",
         ).grid(row=2, column=0, sticky="w", pady=(4, 0))
         tk.Label(
             container,
             text=suffix,
-            font=self.font(12),
+            font=("Segoe UI", 12),
             fg=TEXT_SECONDARY,
             bg="#f1f5f9",
         ).grid(row=3, column=0, sticky="w")
@@ -3932,14 +3499,14 @@ class ErrorsFrame(BaseFrame):
         tk.Label(
             branding,
             text="Журнал помилок",
-            font=self.font(26, "bold"),
+            font=("Segoe UI", 26, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             branding,
             text="Аналізуйте проблеми синхронізації та очищайте журнал",
-            font=self.font(12),
+            font=("Segoe UI", 12),
             fg="#cbd5f5",
             bg=SECONDARY_BG,
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -3949,14 +3516,14 @@ class ErrorsFrame(BaseFrame):
         tk.Label(
             user_info,
             text=app.state_data.user_name,
-            font=self.font(18, "bold"),
+            font=("Segoe UI", 18, "bold"),
             fg="white",
             bg=SECONDARY_BG,
         ).grid(row=0, column=0, sticky="e")
         tk.Label(
             user_info,
             text=self.role_info["label"],
-            font=self.font(12, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg="white",
             bg=self.role_info["color"],
             padx=12,
