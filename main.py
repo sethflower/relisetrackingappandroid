@@ -3458,7 +3458,7 @@ class StatisticsFrame(BaseFrame):
             parent,
             bg="#f1f5f9",
             padx=self.app.scale_padding(24),
-            pady=self.app.scale_padding(16),,
+            pady=self.app.scale_padding(16),
             highlightbackground=NEUTRAL_BORDER,
             highlightthickness=1,
         )
