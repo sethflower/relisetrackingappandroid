@@ -1003,13 +1003,12 @@ class LoginFrame(BaseFrame):
         self._build_layout()
 
     def _build_layout(self) -> None:
-        wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=120, pady=120)
-        wrapper.grid(row=0, column=0, sticky="nsew")
-        wrapper.columnconfigure(0, weight=1)
-        wrapper.rowconfigure(0, weight=1)
+        # Use a full-screen card that scales with the root window
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
         card = tk.Frame(
-            wrapper,
+            self,
             bg=CARD_BG,
             highlightbackground=NEUTRAL_BORDER,
             highlightthickness=2,
@@ -1017,6 +1016,7 @@ class LoginFrame(BaseFrame):
         )
         card.grid(row=0, column=0, sticky="nsew")
         card.columnconfigure(0, weight=1)
+        card.rowconfigure(1, weight=1)
 
         header = tk.Frame(card, bg=ACCENT_COLOR, pady=20, padx=40)
         header.grid(row=0, column=0, sticky="ew")
@@ -1039,6 +1039,7 @@ class LoginFrame(BaseFrame):
         content = tk.Frame(card, bg=CARD_BG, padx=80, pady=60)
         content.grid(row=1, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
+        content.rowconfigure(3, weight=1)
 
         ttk.Label(
             content,
