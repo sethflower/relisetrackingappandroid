@@ -516,14 +516,14 @@ class DatePickerDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Misc, initial: Optional[date] = None) -> None:
         super().__init__(parent)
-        self.configure(bg=PRIMARY_BG)
+        self.configure(bg=CARD_BG)
+        self.resizable(False, False)
         self.title("Оберіть дату")
         self.transient(parent)
         self.grab_set()
 
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        maximize_window(self)
+       
+        
 
         today = date.today()
         self._initial = initial
@@ -532,13 +532,10 @@ class DatePickerDialog(tk.Toplevel):
         base = initial or today
         self._current_year = base.year
         self._current_month = base.month
-
-        card = tk.Frame(self, bg=CARD_BG, padx=32, pady=32)
-        card.grid(row=0, column=0, padx=160, pady=120, sticky="nsew")
-        card.columnconfigure(0, weight=1)
-        card.rowconfigure(1, weight=1)
-
-        header = tk.Frame(card, bg=CARD_BG)
+        
+        container = tk.Frame(self, bg=CARD_BG, padx=24, pady=24)
+        container.grid(row=0, column=0)
+        header = tk.Frame(container, bg=CARD_BG)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(1, weight=1)
 
@@ -563,10 +560,10 @@ class DatePickerDialog(tk.Toplevel):
             style="Secondary.TButton",
         ).grid(row=0, column=2, padx=(12, 0))
 
-        self._days_frame = tk.Frame(card, bg=CARD_BG)
+        self._days_frame = tk.Frame(container, bg=CARD_BG)
         self._days_frame.grid(row=1, column=0, pady=(16, 0))
 
-        footer = tk.Frame(card, bg=CARD_BG)
+        footer = tk.Frame(container, bg=CARD_BG)
         footer.grid(row=2, column=0, pady=(20, 0), sticky="ew")
         footer.columnconfigure(0, weight=1)
         footer.columnconfigure(1, weight=1)
@@ -595,6 +592,19 @@ class DatePickerDialog(tk.Toplevel):
 
         self._render_days()
         self.protocol("WM_DELETE_WINDOW", self._close)
+        self._center_over_parent(parent)
+
+    def _center_over_parent(self, parent: tk.Misc) -> None:
+        self.update_idletasks()
+        parent_x = parent.winfo_rootx()
+        parent_y = parent.winfo_rooty()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = parent_x + (parent_width - width) // 2
+        y = parent_y + (parent_height - height) // 2
+        self.geometry(f"{width}x{height}+{x}+{y}")
         
 
     def _render_days(self) -> None:
@@ -691,28 +701,25 @@ class TimePickerDialog(tk.Toplevel):
         initial: Optional[dtime] = None,
     ) -> None:
         super().__init__(parent)
-        self.configure(bg=PRIMARY_BG)
+        self.configure(bg=CARD_BG)
+        self.resizable(False, False)
         self.title(title)
         self.transient(parent)
         self.grab_set()
         
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        maximize_window(self)
 
         self._initial = initial
         self.result: Optional[dtime] = initial
         self._cancelled = True
 
-        card = tk.Frame(self, bg=CARD_BG, padx=32, pady=32)
-        card.grid(row=0, column=0, padx=160, pady=120, sticky="nsew")
-        card.columnconfigure((0, 1, 2), weight=1)
+        container = tk.Frame(self, bg=CARD_BG, padx=24, pady=24)
+        container.grid(row=0, column=0)
 
         ttk.Label(
-            card,
+            container,
             text="Оберіть час",
             style="CardHeading.TLabel",
-        ).grid(row=0, column=0, columnspan=3, pady=(0, 24), sticky="n")
+        ).grid(row=0, column=0, columnspan=3, pady=(0, 16))
         
         self._hour_var = tk.StringVar(
             value=f"{initial.hour:02d}" if initial else "00"
@@ -722,7 +729,7 @@ class TimePickerDialog(tk.Toplevel):
         )
 
         hour_spin = tk.Spinbox(
-            card,
+            container,
             from_=0,
             to=23,
             wrap=True,
@@ -732,10 +739,10 @@ class TimePickerDialog(tk.Toplevel):
             justify="center",
             state="readonly",
         )
-        hour_spin.grid(row=1, column=0, padx=12)
+        hour_spin.grid(row=1, column=0, padx=6)
 
         tk.Label(
-            card,
+            container,
             text=":",
             font=("Segoe UI", 18, "bold"),
             bg=CARD_BG,
@@ -743,7 +750,7 @@ class TimePickerDialog(tk.Toplevel):
         ).grid(row=1, column=1)
 
         minute_spin = tk.Spinbox(
-            card,
+            container,
             from_=0,
             to=59,
             wrap=True,
@@ -753,33 +760,47 @@ class TimePickerDialog(tk.Toplevel):
             justify="center",
             state="readonly",
         )
-        minute_spin.grid(row=1, column=2, padx=12)
+        minute_spin.grid(row=1, column=2, padx=6)
 
-        controls = tk.Frame(card, bg=CARD_BG)
-        controls.grid(row=2, column=0, columnspan=3, pady=(32, 0))
+        controls = tk.Frame(container, bg=CARD_BG)
+        controls.grid(row=2, column=0, columnspan=3, pady=(20, 0))
 
         ttk.Button(
             controls,
             text="Очистити",
             command=self._clear,
             style="Secondary.TButton",
-        ).grid(row=0, column=0, padx=8)
+        ).grid(row=0, column=0, padx=6)
 
         ttk.Button(
             controls,
             text="Застосувати",
             command=self._apply,
             style="Secondary.TButton",
-        ).grid(row=0, column=1, padx=8)
+        ).grid(row=0, column=1, padx=6)
 
         ttk.Button(
             controls,
             text="Закрити",
             command=self._close,
             style="Secondary.TButton",
-        ).grid(row=0, column=2, padx=8)
+        ).grid(row=0, column=2, padx=6)
 
         self.protocol("WM_DELETE_WINDOW", self._close)
+        
+        self._center_over_parent(parent)
+
+    def _center_over_parent(self, parent: tk.Misc) -> None:
+        self.update_idletasks()
+        parent_x = parent.winfo_rootx()
+        parent_y = parent.winfo_rooty()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = parent_x + (parent_width - width) // 2
+        y = parent_y + (parent_height - height) // 2
+        self.geometry(f"{width}x{height}+{x}+{y}")    
 
     def _clear(self) -> None:
         self.result = None
