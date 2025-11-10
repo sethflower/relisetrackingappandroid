@@ -75,10 +75,25 @@ def apply_responsive_geometry(
 
     try:
         window.geometry(geometry_spec)
+    except tk.TclError:
+        fallback_geometry = f"{available_width}x{available_height}+{offset_x}+{offset_y}"
+        try:
+            window.geometry(fallback_geometry)
+        except tk.TclError:
+            pass
+
+    try:
         window.minsize(applied_min_width, applied_min_height)
     except tk.TclError:
-        window.geometry(f"{base_width}x{base_height}")
-        window.minsize(min_width, min_height)
+        safe_min_width = max(1, min(minimum_width, available_width))
+        safe_min_height = max(1, min(minimum_height, available_height))
+        try:
+            window.minsize(safe_min_width, safe_min_height)
+        except tk.TclError:
+            try:
+                window.minsize(1, 1)
+            except tk.TclError:
+                pass
 
 # Design constants for corporate-style UI
 PRIMARY_BG = "#0f172a"
