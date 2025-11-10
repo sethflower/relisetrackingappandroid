@@ -42,22 +42,43 @@ def apply_responsive_geometry(
     fallback_min_width = 640
     fallback_min_height = 560
 
-    screen_width = window.winfo_screenwidth()
-    screen_height = window.winfo_screenheight()
+    try:
+        window.update_idletasks()
+    except tk.TclError:
+        pass
 
-    available_width = max(fallback_min_width, screen_width - horizontal_margin)
-    available_height = max(fallback_min_height, screen_height - vertical_margin)
+    screen_width = max(1, window.winfo_screenwidth())
+    screen_height = max(1, window.winfo_screenheight())
 
-    width = min(base_width, available_width)
-    height = min(base_height, available_height)
-
-    min_width = min(min_width, available_width)
-    min_height = min(min_height, available_height)
-
-    window.geometry(
-        f"{width}x{height}+{max((screen_width - width) // 2, 0)}+{max((screen_height - height) // 2, 0)}"
+    available_width = min(
+        screen_width,
+        max(screen_width - horizontal_margin, fallback_min_width),
     )
-    window.minsize(min_width, min_height)
+    available_height = min(
+        screen_height,
+        max(screen_height - vertical_margin, fallback_min_height),
+    )
+
+    minimum_width = min(fallback_min_width, available_width)
+    minimum_height = min(fallback_min_height, available_height)
+
+    width = max(minimum_width, min(base_width, available_width))
+    height = max(minimum_height, min(base_height, available_height))
+
+    applied_min_width = max(minimum_width, min(min_width, available_width))
+    applied_min_height = max(minimum_height, min(min_height, available_height))
+
+    offset_x = max((screen_width - width) // 2, 0)
+    offset_y = max((screen_height - height) // 2, 0)
+
+    geometry_spec = f"{width}x{height}+{offset_x}+{offset_y}"
+
+    try:
+        window.geometry(geometry_spec)
+        window.minsize(applied_min_width, applied_min_height)
+    except tk.TclError:
+        window.geometry(f"{base_width}x{base_height}")
+        window.minsize(min_width, min_height)
 
 # Design constants for corporate-style UI
 PRIMARY_BG = "#0f172a"
