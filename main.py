@@ -1132,12 +1132,13 @@ class TrackingApp(tk.Tk):
         except (TypeError, ValueError):
             return None
 
-    def _scale_pad(self, data: Tuple[Tuple[float, float], bool]) -> Tuple[int, int] | int:
-        (first, second), is_tuple = data
-        scaled = (self.scale(first), self.scale(second))
-        if not is_tuple and scaled[0] == scaled[1]:
-            return scaled[0]
-        return scaled
+    def _scale_pad(self, data: Tuple[Tuple[float, float], bool]) -> Tuple[int, int]:
+    (first, second), is_tuple = data
+    scaled = (self.scale(first), self.scale(second))
+    if not is_tuple and scaled[0] == scaled[1]:
+        return scaled[0], scaled[1]  # всегда кортеж
+    return scaled
+
 
     def _scale_scalar(self, value: Optional[float]) -> Optional[int]:
         if value is None:
