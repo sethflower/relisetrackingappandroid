@@ -1037,8 +1037,13 @@ class TrackingApp(tk.Tk):
             }
         config_updates: Dict[str, Any] = {}
         for key in ("padx", "pady", "ipadx", "ipady", "highlightthickness", "borderwidth", "wraplength"):
-            if key in widget.keys():
-                config_updates[key] = self._normalize_scalar(widget.cget(key))
+            if key not in widget.keys():
+                continue
+            value = widget.cget(key)
+            if key in {"padx", "pady"}:
+                config_updates[key] = self._normalize_pad(value)
+            else:
+                config_updates[key] = self._normalize_scalar(value)
         if config_updates:
             layout["config"] = config_updates
         self._layout_registry[widget] = layout
@@ -1083,8 +1088,10 @@ class TrackingApp(tk.Tk):
                 for key, original in layout["config"].items():
                     if original is None:
                         continue
-                    if key in {"padx", "pady", "ipadx", "ipady"}:
+                    if key in {"padx", "pady"}:
                         updates[key] = self._scale_pad(original)
+                    elif key in {"ipadx", "ipady"}:
+                        updates[key] = self._scale_scalar(original)
                     else:
                         updates[key] = self._scale_scalar(original)
                 if updates:
