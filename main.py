@@ -841,11 +841,16 @@ class TrackingApp(tk.Tk):
         self.grid_rowconfigure(0, weight=1)
         self._maximize()
 
+        self._resize_after_id: Optional[str] = None
+        self._scale = self._compute_scale(self.winfo_screenwidth(), self.winfo_screenheight())
+        self._apply_scaling()
+
         self.state_data = AppState.load()
         self._current_frame: Optional[tk.Frame] = None
 
         self.style = ttk.Style(self)
         self._setup_styles()
+        self.bind("<Configure>", self._schedule_resize)
 
         if self.state_data.token and self.state_data.user_name:
             self.show_scanner()
@@ -865,6 +870,45 @@ class TrackingApp(tk.Tk):
             except tk.TclError:
                 self.attributes("-fullscreen", True)
 
+    def _schedule_resize(self, event: tk.Event) -> None:
+        if event.widget is not self:
+            return
+        if self._resize_after_id is not None:
+            self.after_cancel(self._resize_after_id)
+        width, height = event.width, event.height
+        self._resize_after_id = self.after(120, lambda: self._handle_resize(width, height))
+
+    def _handle_resize(self, width: int, height: int) -> None:
+        self._resize_after_id = None
+        new_scale = self._compute_scale(width, height)
+        if abs(new_scale - self._scale) < 0.05:
+            return
+        self._scale = new_scale
+        self._apply_scaling()
+        self._setup_styles()
+
+    def _apply_scaling(self) -> None:
+        try:
+            self.tk.call("tk", "scaling", self._scale)
+        except tk.TclError:
+            pass
+
+    def _compute_scale(self, width: int, height: int) -> float:
+        base_width, base_height = 1280, 800
+        scale_w = width / base_width
+        scale_h = height / base_height
+        scale = min(scale_w, scale_h)
+        return max(0.85, min(1.4, scale))
+
+    def _scaled(self, value: int) -> int:
+        return max(1, int(round(value * self._scale)))
+
+    def _font(self, size: int, weight: Optional[str] = None) -> Tuple[Any, ...]:
+        args: List[Any] = ["Segoe UI", max(8, self._scaled(size))]
+        if weight:
+            args.append(weight)
+        return tuple(args)
+
     def _setup_styles(self) -> None:
         try:
             self.style.theme_use("clam")
@@ -873,32 +917,32 @@ class TrackingApp(tk.Tk):
 
         self.style.configure(
             "TLabel",
-            font=("Segoe UI", 12),
+            font=("self._font", 12),
             background=PRIMARY_BG,
             foreground="#e2e8f0",
         )
         self.style.configure(
             "Card.TLabel",
-            font=("Segoe UI", 12),
+            font=("self._font", 12),
             background=CARD_BG,
             foreground=TEXT_SECONDARY,
         )
         self.style.configure(
             "CardHeading.TLabel",
-            font=("Segoe UI", 28, "bold"),
+            font=("self._font", 28, "bold"),
             background=CARD_BG,
             foreground=TEXT_PRIMARY,
         )
         self.style.configure(
             "CardSubheading.TLabel",
-            font=("Segoe UI", 14),
+            font=("self._font", 14),
             background=CARD_BG,
             foreground=TEXT_SECONDARY,
         )
         self.style.configure(
             "Primary.TButton",
-            font=("Segoe UI", 14, "bold"),
-            padding=(24, 12),
+            font=self._font(14, "bold"),
+            padding=(self._scaled(24), self._scaled(12)),
             background=ACCENT_COLOR,
             foreground="white",
             borderwidth=0,
@@ -910,8 +954,8 @@ class TrackingApp(tk.Tk):
         )
         self.style.configure(
             "Secondary.TButton",
-            font=("Segoe UI", 12, "bold"),
-            padding=(18, 10),
+            font=self._font(12, "bold"),
+            padding=(self._scaled(18), self._scaled(10)),
             background="#1f2937",
             foreground="#f8fafc",
             borderwidth=0,
@@ -923,13 +967,13 @@ class TrackingApp(tk.Tk):
         )
         self.style.configure(
             "TEntry",
-            font=("Segoe UI", 16),
-            padding=10,
+            font=self._font(16),
+            padding=self._scaled(10),
         )
         self.style.configure(
             "Treeview",
-            font=("Segoe UI", 12),
-            rowheight=36,
+            font=self._font(12),
+            rowheight=self._scaled(36),
             fieldbackground="#f8fafc",
             background="#f8fafc",
             foreground=TEXT_PRIMARY,
@@ -937,7 +981,7 @@ class TrackingApp(tk.Tk):
         )
         self.style.configure(
             "Treeview.Heading",
-            font=("Segoe UI", 12, "bold"),
+            font=self._font(12, "bold"),
             padding=12,
             background=ACCENT_COLOR,
             foreground="white",
