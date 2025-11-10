@@ -880,87 +880,7 @@ class TimePickerDialog(tk.Toplevel):
             return self._initial
         return self.result
 
-class ScrollableFrame(tk.Frame):
-    """Frame with vertical scrolling that adapts to limited screen space."""
 
-    def __init__(
-        self,
-        parent: tk.Misc,
-        *,
-        background: str,
-        content_background: Optional[str] = None,
-        padx: int = 0,
-        pady: int = 0,
-    ) -> None:
-        super().__init__(parent, bg=background, highlightthickness=0, bd=0)
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-
-        self._canvas = tk.Canvas(
-            self,
-            bg=background,
-            highlightthickness=0,
-            borderwidth=0,
-        )
-        self._canvas.grid(row=0, column=0, sticky="nsew")
-
-        self._scrollbar = ttk.Scrollbar(
-            self,
-            orient="vertical",
-            command=self._canvas.yview,
-        )
-        self._scrollbar.grid(row=0, column=1, sticky="ns")
-        self._canvas.configure(yscrollcommand=self._scrollbar.set)
-
-        content_bg = content_background or background
-        self._content = tk.Frame(
-            self._canvas,
-            bg=content_bg,
-            highlightthickness=0,
-            bd=0,
-            padx=padx,
-            pady=pady,
-        )
-
-        self._window_id = self._canvas.create_window(
-            (0, 0),
-            window=self._content,
-            anchor="nw",
-        )
-
-        self._content.bind(
-            "<Configure>",
-            lambda event: self._canvas.configure(scrollregion=self._canvas.bbox("all")),
-        )
-        self._canvas.bind(
-            "<Configure>",
-            lambda event: self._canvas.itemconfigure(self._window_id, width=event.width),
-        )
-
-        self._content.bind("<Enter>", lambda _: self._bind_mousewheel())
-        self._content.bind("<Leave>", lambda _: self._unbind_mousewheel())
-
-    @property
-    def content(self) -> tk.Frame:
-        return self._content
-
-    def _bind_mousewheel(self) -> None:
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self._canvas.bind_all("<Button-4>", self._on_mousewheel)
-        self._canvas.bind_all("<Button-5>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self) -> None:
-        self._canvas.unbind_all("<MouseWheel>")
-        self._canvas.unbind_all("<Button-4>")
-        self._canvas.unbind_all("<Button-5>")
-
-    def _on_mousewheel(self, event) -> None:
-        if getattr(event, "delta", 0):
-            delta = -int(event.delta / 120)
-            self._canvas.yview_scroll(delta, "units")
-        elif getattr(event, "num", None) in (4, 5):
-            delta = -1 if event.num == 4 else 1
-            self._canvas.yview_scroll(delta, "units")
 
 
 
@@ -1159,16 +1079,8 @@ class LoginFrame(BaseFrame):
         self._build_layout()
 
     def _build_layout(self) -> None:
-        scroll_area = ScrollableFrame(
-            self,
-            background=PRIMARY_BG,
-            content_background=PRIMARY_BG,
-            padx=120,
-            pady=120,
-        )
-        scroll_area.grid(row=0, column=0, sticky="nsew")
-
-        wrapper = scroll_area.content
+        wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=120, pady=120)
+        wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.columnconfigure(0, weight=1)
         wrapper.rowconfigure(0, weight=1)
 
@@ -2277,16 +2189,8 @@ class ScannerFrame(BaseFrame):
             "can_clear_errors"
         )
 
-        scroll_shell = ScrollableFrame(
-            self,
-            background=PRIMARY_BG,
-            content_background=PRIMARY_BG,
-            padx=24,
-            pady=24,
-        )
-        scroll_shell.grid(row=0, column=0, sticky="nsew")
-
-        shell = scroll_shell.content
+        shell = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
+        shell.grid(row=0, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(2, weight=1)
 
@@ -2613,16 +2517,8 @@ class HistoryFrame(BaseFrame):
             "can_clear_errors"
         )
 
-        scroll_shell = ScrollableFrame(
-            self,
-            background=PRIMARY_BG,
-            content_background=PRIMARY_BG,
-            padx=24,
-            pady=24,
-        )
-        scroll_shell.grid(row=0, column=0, sticky="nsew")
-
-        shell = scroll_shell.content
+        shell = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
+        shell.grid(row=0, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(1, weight=1)
 
@@ -2992,16 +2888,8 @@ class StatisticsFrame(BaseFrame):
         self.error_counts: Dict[str, int] = {}
         self.daily_rows: List[Tuple[str, int, int, str, str]] = []
 
-        scroll_shell = ScrollableFrame(
-            self,
-            background=PRIMARY_BG,
-            content_background=PRIMARY_BG,
-            padx=24,
-            pady=24,
-        )
-        scroll_shell.grid(row=0, column=0, sticky="nsew")
-
-        shell = scroll_shell.content
+        shell = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
+        shell.grid(row=0, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(1, weight=1)
 
@@ -3676,16 +3564,8 @@ class ErrorsFrame(BaseFrame):
             "can_clear_errors"
         )
 
-        scroll_shell = ScrollableFrame(
-            self,
-            background=PRIMARY_BG,
-            content_background=PRIMARY_BG,
-            padx=24,
-            pady=24,
-        )
-        scroll_shell.grid(row=0, column=0, sticky="nsew")
-
-        shell = scroll_shell.content
+        shell = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
+        shell.grid(row=0, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(1, weight=1)
 
