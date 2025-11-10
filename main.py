@@ -1109,8 +1109,10 @@ class TrackingApp(tk.Tk):
     def _normalize_pad(self, value: Any) -> Optional[Tuple[Tuple[float, float], bool]]:
         if value in (None, ""):
             return None
+
         parsed: Tuple[float, float]
         is_tuple = False
+
         if isinstance(value, str):
             parts = value.split()
             if len(parts) == 1:
@@ -1127,8 +1129,21 @@ class TrackingApp(tk.Tk):
                 parsed = (float(value[0]), float(value[1]))
                 is_tuple = True
         else:
-            number = float(value)
-            parsed = (number, number)
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                text = str(value).strip()
+                if not text:
+                    return None
+                parts = text.split()
+                if len(parts) == 1:
+                    number = float(parts[0])
+                    parsed = (number, number)
+                else:
+                    parsed = (float(parts[0]), float(parts[1]))
+                    is_tuple = True
+            else:
+                parsed = (number, number)
         return parsed, is_tuple
 
     def _normalize_scalar(self, value: Any) -> Optional[float]:
