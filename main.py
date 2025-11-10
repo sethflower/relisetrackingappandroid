@@ -599,7 +599,7 @@ class DatePickerDialog(tk.Toplevel):
             text="Сьогодні",
             command=self._select_today,
             style="Secondary.TButton",
-        ).grid(row=0, column=0, padx=app_spacing(6)
+        ).grid(row=0, column=0, padx=app_spacing(6))
 
         ttk.Button(
             footer,
