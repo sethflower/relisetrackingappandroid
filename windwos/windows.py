@@ -27,6 +27,38 @@ API_BASE = "https://tracking-api-b4jb.onrender.com"
 STATE_PATH = Path(__file__).with_name("tracking_app_state.json")
 QUEUE_PATH = Path(__file__).with_name("offline_queue.json")
 
+def apply_responsive_geometry(
+    window: tk.Misc,
+    *,
+    base_width: int,
+    base_height: int,
+    min_width: int,
+    min_height: int,
+    horizontal_margin: int = 40,
+    vertical_margin: int = 80,
+) -> None:
+    """Configure a window size that adapts to the current screen resolution."""
+
+    fallback_min_width = 640
+    fallback_min_height = 560
+
+    screen_width = window.winfo_screenwidth()
+    screen_height = window.winfo_screenheight()
+
+    available_width = max(fallback_min_width, screen_width - horizontal_margin)
+    available_height = max(fallback_min_height, screen_height - vertical_margin)
+
+    width = min(base_width, available_width)
+    height = min(base_height, available_height)
+
+    min_width = min(min_width, available_width)
+    min_height = min(min_height, available_height)
+
+    window.geometry(
+        f"{width}x{height}+{max((screen_width - width) // 2, 0)}+{max((screen_height - height) // 2, 0)}"
+    )
+    window.minsize(min_width, min_height)
+
 # Design constants for corporate-style UI
 PRIMARY_BG = "#0f172a"
 SECONDARY_BG = "#111c3a"
@@ -834,8 +866,13 @@ class TrackingApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("TrackingApp Windows Edition")
-        self.geometry("1280x800")
-        self.minsize(1200, 720)
+        apply_responsive_geometry(
+            self,
+            base_width=1280,
+            base_height=800,
+            min_width=1200,
+            min_height=720,
+        )
         self.configure(bg=PRIMARY_BG)
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -1423,8 +1460,13 @@ class AdminPanelWindow(tk.Toplevel):
         self.admin_token = token
         self.title("Панель адміністратора")
         self.configure(bg=PRIMARY_BG)
-        self.geometry("1280x760")
-        self.minsize(1100, 680)
+        apply_responsive_geometry(
+            self,
+            base_width=1280,
+            base_height=760,
+            min_width=1100,
+            min_height=680,
+        )
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
