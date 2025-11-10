@@ -6,13 +6,15 @@ import csv
 import json
 import threading
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 from datetime import datetime, date, time as dtime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
+
+from enum import Enum
 
 try:
     import requests
@@ -54,19 +56,310 @@ MONTH_NAMES = [
 WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
 
 
+class ApiException(Exception):
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    VIEWER = "viewer"
+
+    @property
+    def label(self) -> str:
+        return {
+            UserRole.ADMIN: "🔑 Адмін",
+            UserRole.OPERATOR: "🧰 Оператор",
+            UserRole.VIEWER: "👁 Перегляд",
+        }[self]
+
+    @property
+    def description(self) -> str:
+        return {
+            UserRole.ADMIN: "Повний доступ до функцій та керування користувачами",
+            UserRole.OPERATOR: "Додавання записів та базовий функціонал",
+            UserRole.VIEWER: "Перегляд інформації без змін",
+        }[self]
+
+    @property
+    def level(self) -> int:
+        return {
+            UserRole.ADMIN: 1,
+            UserRole.OPERATOR: 0,
+            UserRole.VIEWER: 2,
+        }[self]
+
+    @staticmethod
+    def from_value(value: Optional[str], access_level: Optional[int] = None) -> "UserRole":
+        if value:
+            normalized = value.lower()
+            if normalized == "admin":
+                return UserRole.ADMIN
+            if normalized == "operator":
+                return UserRole.OPERATOR
+            if normalized == "viewer":
+                return UserRole.VIEWER
+        if access_level == 1:
+            return UserRole.ADMIN
+        if access_level == 0:
+            return UserRole.OPERATOR
+        return UserRole.VIEWER
+
+
+@dataclass
+class PendingUser:
+    id: int
+    surname: str
+    created_at: Optional[datetime]
+
+
+@dataclass
+class ManagedUser:
+    id: int
+    surname: str
+    role: UserRole
+    is_active: bool
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+
+class UserApi:
+    @staticmethod
+    def _url(path: str) -> str:
+        if not path.startswith("/"):
+            path = f"/{path}"
+        return f"{API_BASE}{path}"
+
+    @staticmethod
+    def _headers(token: Optional[str] = None) -> Dict[str, str]:
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    @staticmethod
+    def _extract_message(payload: Any, status: int) -> str:
+        if isinstance(payload, dict):
+            detail = payload.get("detail") or payload.get("message")
+            if isinstance(detail, str) and detail:
+                return detail
+        return f"Помилка сервера ({status})"
+
+    @staticmethod
+    def _request(
+        method: str,
+        path: str,
+        *,
+        token: Optional[str] = None,
+        json_data: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        response = requests.request(
+            method,
+            UserApi._url(path),
+            headers=UserApi._headers(token),
+            json=json_data,
+            timeout=15,
+        )
+        if 200 <= response.status_code < 300:
+            if response.content:
+                try:
+                    return response.json()
+                except ValueError:
+                    return None
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        raise ApiException(
+            UserApi._extract_message(payload, response.status_code),
+            response.status_code,
+        )
+
+    @staticmethod
+    def register_user(surname: str, password: str) -> None:
+        UserApi._request(
+            "POST",
+            "/register",
+            json_data={"surname": surname, "password": password},
+        )
+
+    @staticmethod
+    def admin_login(password: str) -> str:
+        data = UserApi._request(
+            "POST",
+            "/admin_login",
+            json_data={"password": password},
+        )
+        if not isinstance(data, dict):
+            raise ApiException("Некоректна відповідь сервера", 500)
+        token = str(data.get("token", ""))
+        if not token:
+            raise ApiException("Сервер не повернув токен доступу", 500)
+        return token
+
+    @staticmethod
+    def fetch_pending_users(token: str) -> List[PendingUser]:
+        data = UserApi._request("GET", "/admin/registration_requests", token=token)
+        results: List[PendingUser] = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    created = parse_api_datetime(item.get("created_at"))
+                    results.append(
+                        PendingUser(
+                            id=int(float(item.get("id", 0) or 0)),
+                            surname=str(item.get("surname", "Невідомий користувач")),
+                            created_at=created,
+                        )
+                    )
+        return results
+
+    @staticmethod
+    def approve_pending_user(token: str, request_id: int, role: UserRole) -> None:
+        UserApi._request(
+            "POST",
+            f"/admin/registration_requests/{request_id}/approve",
+            token=token,
+            json_data={"role": role.value},
+        )
+
+    @staticmethod
+    def reject_pending_user(token: str, request_id: int) -> None:
+        UserApi._request(
+            "POST",
+            f"/admin/registration_requests/{request_id}/reject",
+            token=token,
+        )
+
+    @staticmethod
+    def fetch_users(token: str) -> List[ManagedUser]:
+        data = UserApi._request("GET", "/admin/users", token=token)
+        results: List[ManagedUser] = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    role = UserRole.from_value(item.get("role"))
+                    created = parse_api_datetime(item.get("created_at"))
+                    updated = parse_api_datetime(item.get("updated_at"))
+                    results.append(
+                        ManagedUser(
+                            id=int(float(item.get("id", 0) or 0)),
+                            surname=str(item.get("surname", "Невідомий користувач")),
+                            role=role,
+                            is_active=bool(item.get("is_active", False)),
+                            created_at=created,
+                            updated_at=updated,
+                        )
+                    )
+        return results
+
+    @staticmethod
+    def update_user(
+        token: str,
+        user_id: int,
+        *,
+        role: Optional[UserRole] = None,
+        is_active: Optional[bool] = None,
+    ) -> ManagedUser:
+        payload: Dict[str, Any] = {}
+        if role is not None:
+            payload["role"] = role.value
+        if is_active is not None:
+            payload["is_active"] = is_active
+        if not payload:
+            raise ApiException("Немає даних для оновлення", 400)
+        data = UserApi._request(
+            "PATCH",
+            f"/admin/users/{user_id}",
+            token=token,
+            json_data=payload,
+        )
+        if not isinstance(data, dict):
+            raise ApiException("Некоректна відповідь сервера", 500)
+        role_value = UserRole.from_value(data.get("role"))
+        return ManagedUser(
+            id=int(float(data.get("id", user_id) or user_id)),
+            surname=str(data.get("surname", "Невідомий користувач")),
+            role=role_value,
+            is_active=bool(data.get("is_active", False)),
+            created_at=parse_api_datetime(data.get("created_at")),
+            updated_at=parse_api_datetime(data.get("updated_at")),
+        )
+
+    @staticmethod
+    def delete_user(token: str, user_id: int) -> None:
+        UserApi._request("DELETE", f"/admin/users/{user_id}", token=token)
+
+    @staticmethod
+    def fetch_role_passwords(token: str) -> Dict[UserRole, str]:
+        data = UserApi._request("GET", "/admin/role-passwords", token=token)
+        results: Dict[UserRole, str] = {}
+        if isinstance(data, dict):
+            for key, value in data.items():
+                role = UserRole.from_value(str(key))
+                results[role] = "" if value is None else str(value)
+        return results
+
+    @staticmethod
+    def update_role_password(token: str, role: UserRole, password: str) -> None:
+        UserApi._request(
+            "POST",
+            f"/admin/role-passwords/{role.value}",
+            token=token,
+            json_data={"password": password},
+        )
+
+
+def normalize_role(role_name: Optional[str], access_level: Optional[int]) -> UserRole:
+    return UserRole.from_value(role_name, access_level)
+
+
+def get_role_info(role_name: Optional[str], access_level: Optional[int]) -> Dict[str, Any]:
+    role = normalize_role(role_name, access_level)
+    color = {
+        UserRole.ADMIN: "#e53935",
+        UserRole.OPERATOR: "#1e88e5",
+        UserRole.VIEWER: "#757575",
+    }[role]
+    can_clear_history = role == UserRole.ADMIN
+    can_clear_errors = role in (UserRole.ADMIN, UserRole.OPERATOR)
+    return {
+        "label": role.label,
+        "color": color,
+        "can_clear_history": can_clear_history,
+        "can_clear_errors": can_clear_errors,
+        "is_admin": role == UserRole.ADMIN,
+        "level": access_level if access_level is not None else role.level,
+        "role": role,
+    }
+
+
 @dataclass
 class AppState:
     token: Optional[str] = None
-    access_level: int = 2
-    last_password: str = ""
-    user_name: str = "operator"
+    access_level: Optional[int] = None
+    user_name: str = ""
+    user_role: str = "viewer"
 
     @classmethod
     def load(cls) -> "AppState":
         if STATE_PATH.exists():
             try:
                 data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-                return cls(**data)
+                allowed = {field.name for field in fields(cls)}
+                filtered = {
+                    key: value
+                    for key, value in data.items()
+                    if key in allowed
+                }
+                return cls(**filtered)
             except Exception:
                 STATE_PATH.unlink(missing_ok=True)
         return cls()
@@ -131,16 +424,6 @@ class OfflineQueue:
         threading.Thread(target=worker, daemon=True).start()
 
 
-def get_role_info(access_level: int, password: str) -> Dict[str, Any]:
-    if access_level == 1 or password == "301993":
-        return {"label": "🔑 Адмін", "color": "#e53935", "can_clear_history": True, "can_clear_errors": True}
-    if password == "123123123":
-        return {"label": "🧰 Очищення помилок", "color": "#fb8c00", "can_clear_history": False, "can_clear_errors": True}
-    if access_level == 0:
-        return {"label": "🧰 Оператор", "color": "#1e88e5", "can_clear_history": False, "can_clear_errors": False}
-    return {"label": "👁 Перегляд", "color": "#757575", "can_clear_history": False, "can_clear_errors": False}
-
-
 def parse_api_datetime(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -184,6 +467,35 @@ def create_large_entry(
         disabledbackground="#e2e8f0",
     )
     return entry
+    
+    
+def create_form_entry(
+    parent: tk.Misc,
+    *,
+    textvariable: tk.StringVar,
+    show: Optional[str] = None,
+    justify: str = "left",
+) -> tk.Entry:
+    entry = tk.Entry(
+        parent,
+        textvariable=textvariable,
+        show=show,
+        justify=justify,
+        font=("Segoe UI", 32, "bold"),
+        bg=CARD_BG,
+        fg=TEXT_PRIMARY,
+        insertbackground=TEXT_PRIMARY,
+        relief="flat",
+        bd=0,
+        highlightthickness=2,
+        highlightcolor=ACCENT_COLOR,
+        highlightbackground=NEUTRAL_BORDER,
+        disabledforeground="#94a3b8",
+        disabledbackground="#e2e8f0",
+    )
+    return entry
+
+
 
 
 class DatePickerDialog(tk.Toplevel):
@@ -659,7 +971,7 @@ class TrackingApp(tk.Tk):
         self.switch_to(ErrorsFrame)
 
     def show_statistics(self) -> None:
-        role = get_role_info(self.state_data.access_level, self.state_data.last_password)
+        role = get_role_info(self.state_data.user_role, self.state_data.access_level)
         if not (role.get("can_clear_history") and role.get("can_clear_errors")):
             messagebox.showerror(
                 "Обмежено",
@@ -672,10 +984,25 @@ class TrackingApp(tk.Tk):
 class LoginFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
-        self.password_var = tk.StringVar()
-        self.error_var = tk.StringVar()
-        self.loading = False
+        self.mode = tk.StringVar(value="login")
 
+        # Login state
+        self.login_surname_var = tk.StringVar()
+        self.login_password_var = tk.StringVar()
+        self.login_error_var = tk.StringVar()
+        self.login_loading = False
+
+        # Registration state
+        self.register_surname_var = tk.StringVar()
+        self.register_password_var = tk.StringVar()
+        self.register_confirm_var = tk.StringVar()
+        self.register_message_var = tk.StringVar()
+        self.register_success = False
+        self.register_loading = False
+
+        self._build_layout()
+
+    def _build_layout(self) -> None:
         wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=120, pady=120)
         wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.columnconfigure(0, weight=1)
@@ -721,101 +1048,956 @@ class LoginFrame(BaseFrame):
         ).grid(row=0, column=0, sticky="ew")
         ttk.Label(
             content,
-            text="Увійдіть, щоб продовжити роботу з системою",
+            text="Увійдіть або надішліть заявку на реєстрацію",
             style="CardSubheading.TLabel",
             anchor="center",
         ).grid(row=1, column=0, sticky="ew", pady=(4, 30))
 
-        input_block = tk.Frame(content, bg=CARD_BG)
-        input_block.grid(row=2, column=0, sticky="ew")
-        input_block.columnconfigure(0, weight=1)
-        tk.Label(
-            input_block,
-            text="Пароль доступу",
-            font=("Segoe UI", 12, "bold"),
-            fg=TEXT_SECONDARY,
-            bg=CARD_BG,
-        ).grid(row=0, column=0, sticky="w")
-        entry = create_large_entry(
-            input_block,
-            textvariable=self.password_var,
-            show="*",
-        )
-        entry.grid(row=1, column=0, sticky="ew", pady=(8, 0), ipady=40)
-        entry.bind("<Return>", lambda _: self.login())
+        switcher = tk.Frame(content, bg=CARD_BG)
+        switcher.grid(row=2, column=0, sticky="ew", pady=(0, 24))
+        switcher.columnconfigure(0, weight=1)
+        switcher.columnconfigure(1, weight=1)
 
-        self.error_label = tk.Label(
-            content,
-            textvariable=self.error_var,
-            font=("Segoe UI", 12),
-            fg="#d32f2f",
-            bg=CARD_BG,
+        self.login_tab = ttk.Button(
+            switcher,
+            text="Вхід",
+            style="Secondary.TButton",
+            command=lambda: self.set_mode("login"),
         )
-        self.error_label.grid(row=3, column=0, sticky="ew", pady=(16, 0))
+        self.login_tab.grid(row=0, column=0, padx=6, sticky="ew")
 
-        self.button = ttk.Button(
-            content,
-            text="Увійти в систему",
-            command=self.login,
-            style="Primary.TButton",
+        self.register_tab = ttk.Button(
+            switcher,
+            text="Реєстрація",
+            style="Secondary.TButton",
+            command=lambda: self.set_mode("register"),
         )
-        self.button.grid(row=4, column=0, sticky="ew", pady=(32, 12))
+        self.register_tab.grid(row=0, column=1, padx=6, sticky="ew")
+
+        self.forms_container = tk.Frame(content, bg=CARD_BG)
+        self.forms_container.grid(row=3, column=0, sticky="nsew")
+        self.forms_container.columnconfigure(0, weight=1)
+
+        self.login_form = self._build_login_form(self.forms_container)
+        self.register_form = self._build_registration_form(self.forms_container)
 
         footer = tk.Frame(card, bg=CARD_BG, pady=20)
         footer.grid(row=2, column=0, sticky="ew")
+        footer.columnconfigure(0, weight=1)
+        ttk.Button(
+            footer,
+            text="Панель адміністратора",
+            style="Secondary.TButton",
+            command=self.open_admin_panel,
+        ).grid(row=0, column=0, pady=(0, 12), padx=12, sticky="e")
         tk.Label(
             footer,
             text="TrackingApp by DimonVR",
             font=("Segoe UI", 12),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
-        ).pack()
+        ).grid(row=1, column=0, sticky="e", padx=12)
 
-        entry.focus_set()
+        self.set_mode(self.mode.get())
 
-    def set_loading(self, value: bool) -> None:
-        self.loading = value
-        if value:
-            self.button.configure(text="Зачекайте...", state="disabled")
+    def _build_login_form(self, parent: tk.Misc) -> tk.Frame:
+        frame = tk.Frame(parent, bg=CARD_BG)
+        frame.columnconfigure(0, weight=1)
+
+        tk.Label(
+            frame,
+            text="Прізвище",
+            font=("Segoe UI", 14, "bold"),
+            fg=TEXT_SECONDARY,
+            bg=CARD_BG,
+        ).grid(row=0, column=0, sticky="w")
+        surname_entry = create_form_entry(
+            frame, textvariable=self.login_surname_var, justify="left"
+        )
+        surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 20), ipady=10)
+        surname_entry.bind("<Return>", lambda _: self.login())
+
+        tk.Label(
+            frame,
+            text="Пароль",
+            font=("Segoe UI", 14, "bold"),
+            fg=TEXT_SECONDARY,
+            bg=CARD_BG,
+        ).grid(row=2, column=0, sticky="w")
+        password_entry = create_form_entry(
+            frame, textvariable=self.login_password_var, show="*", justify="left"
+        )
+        password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 8), ipady=10)
+        password_entry.bind("<Return>", lambda _: self.login())
+
+        self.login_error_label = tk.Label(
+            frame,
+            textvariable=self.login_error_var,
+            font=("Segoe UI", 12),
+            fg="#d32f2f",
+            bg=CARD_BG,
+        )
+        self.login_error_label.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+
+        self.login_button = ttk.Button(
+            frame,
+            text="Увійти",
+            style="Primary.TButton",
+            command=self.login,
+        )
+        self.login_button.grid(row=5, column=0, sticky="ew", pady=(24, 0))
+
+        self.login_surname_entry = surname_entry
+        return frame
+
+    def _build_registration_form(self, parent: tk.Misc) -> tk.Frame:
+        frame = tk.Frame(parent, bg=CARD_BG)
+        frame.columnconfigure(0, weight=1)
+
+        tk.Label(
+            frame,
+            text="Прізвище",
+            font=("Segoe UI", 14, "bold"),
+            fg=TEXT_SECONDARY,
+            bg=CARD_BG,
+        ).grid(row=0, column=0, sticky="w")
+        surname_entry = create_form_entry(
+            frame, textvariable=self.register_surname_var, justify="left"
+        )
+        surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 16), ipady=10)
+        surname_entry.bind("<Return>", lambda _: self.register())
+
+        tk.Label(
+            frame,
+            text="Пароль",
+            font=("Segoe UI", 14, "bold"),
+            fg=TEXT_SECONDARY,
+            bg=CARD_BG,
+        ).grid(row=2, column=0, sticky="w")
+        password_entry = create_form_entry(
+            frame, textvariable=self.register_password_var, show="*", justify="left"
+        )
+        password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 16), ipady=10)
+        password_entry.bind("<Return>", lambda _: self.register())
+
+        tk.Label(
+            frame,
+            text="Підтвердження пароля",
+            font=("Segoe UI", 14, "bold"),
+            fg=TEXT_SECONDARY,
+            bg=CARD_BG,
+        ).grid(row=4, column=0, sticky="w")
+        confirm_entry = create_form_entry(
+            frame, textvariable=self.register_confirm_var, show="*", justify="left"
+        )
+        confirm_entry.grid(row=5, column=0, sticky="ew", pady=(8, 8), ipady=10)
+        confirm_entry.bind("<Return>", lambda _: self.register())
+
+        self.register_feedback_label = tk.Label(
+            frame,
+            textvariable=self.register_message_var,
+            font=("Segoe UI", 12),
+            fg="#16a34a",
+            bg=CARD_BG,
+            wraplength=540,
+            justify="left",
+        )
+        self.register_feedback_label.grid(row=6, column=0, sticky="ew", pady=(4, 0))
+
+        self.register_button = ttk.Button(
+            frame,
+            text="Надіслати заявку",
+            style="Primary.TButton",
+            command=self.register,
+        )
+        self.register_button.grid(row=7, column=0, sticky="ew", pady=(24, 0))
+
+        self.register_surname_entry = surname_entry
+        return frame
+
+    def set_mode(self, mode: str) -> None:
+        if mode not in {"login", "register"}:
+            return
+        self.mode.set(mode)
+        self._update_mode()
+
+    def _update_mode(self) -> None:
+        is_login = self.mode.get() == "login"
+        if is_login:
+            self.register_form.grid_forget()
+            self.login_form.grid(row=0, column=0, sticky="nsew")
+            self.login_tab.state(["disabled"])
+            self.register_tab.state(["!disabled"])
+            self.register_message_var.set("")
+            self.after(100, self.login_surname_entry.focus_set)
         else:
-            self.button.configure(text="Увійти в систему", state="normal")
+            self.login_form.grid_forget()
+            self.register_form.grid(row=0, column=0, sticky="nsew")
+            self.register_tab.state(["disabled"])
+            self.login_tab.state(["!disabled"])
+            self.login_error_var.set("")
+            self.after(100, self.register_surname_entry.focus_set)
+
+    @staticmethod
+    def _to_int(value: Any) -> Optional[int]:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                return None
+        return None
+
+    def _set_login_loading(self, loading: bool) -> None:
+        self.login_loading = loading
+        if loading:
+            self.login_button.configure(text="Зачекайте...", state="disabled")
+        else:
+            self.login_button.configure(text="Увійти", state="normal")
 
     def login(self) -> None:
-        if self.loading:
+        if self.login_loading:
             return
-        password = self.password_var.get().strip()
-        if not password:
-            self.error_var.set("Введіть пароль")
+        surname = self.login_surname_var.get().strip()
+        password = self.login_password_var.get().strip()
+        if not surname or not password:
+            self.login_error_var.set("Введіть прізвище та пароль")
             return
 
         def worker() -> None:
             try:
                 response = requests.post(
                     f"{API_BASE}/login",
-                    params={"password": password},
-                    headers={"Accept": "application/json"},
-                    timeout=10,
+                    json={"surname": surname, "password": password},
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=15,
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    self.app.state_data.token = data.get("token")
-                    self.app.state_data.access_level = data.get("access_level", 2)
-                    self.app.state_data.last_password = password
-                    self.app.state_data.save()
-                    self.after(0, self.app.show_username)
-                else:
-                    try:
-                        message = response.json().get("message", "Невірний пароль")
-                    except Exception:
-                        message = "Невірний пароль"
-                    self.after(0, lambda: self.error_var.set(message))
-            except requests.RequestException:
-                self.after(0, lambda: self.error_var.set("Помилка підключення до сервера"))
-            finally:
-                self.after(0, lambda: self.set_loading(False))
+                    if not isinstance(data, dict):
+                        raise ApiException("Некоректна відповідь сервера", 500)
+                    token = str(data.get("token", ""))
+                    if not token:
+                        raise ApiException("Сервер не повернув коректний токен", 500)
+                    access_level = self._to_int(data.get("access_level"))
+                    role_name = data.get("role")
+                    resolved_name = str(data.get("surname", surname))
 
-        self.error_var.set("")
-        self.set_loading(True)
+                    def finalize() -> None:
+                        self.login_error_var.set("")
+                        self.app.state_data.token = token
+                        self.app.state_data.access_level = access_level
+                        self.app.state_data.user_name = resolved_name
+                        self.app.state_data.user_role = str(role_name or "viewer").lower()
+                        self.app.state_data.save()
+                        OfflineQueue.sync_pending(token)
+                        if resolved_name:
+                            self.app.show_scanner()
+                        else:
+                            self.app.show_username()
+
+                    self.after(0, finalize)
+                    return
+
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = None
+                message = UserApi._extract_message(payload, response.status_code)
+                self.after(0, lambda: self.login_error_var.set(message))
+            except ApiException as exc:
+                self.after(0, lambda: self.login_error_var.set(exc.message))
+            except requests.RequestException:
+                self.after(0, lambda: self.login_error_var.set("Помилка підключення до сервера"))
+            finally:
+                self.after(0, lambda: self._set_login_loading(False))
+
+        self.login_error_var.set("")
+        self._set_login_loading(True)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_register_loading(self, loading: bool) -> None:
+        self.register_loading = loading
+        if loading:
+            self.register_button.configure(text="Надсилання...", state="disabled")
+        else:
+            self.register_button.configure(text="Надіслати заявку", state="normal")
+
+    def _set_register_feedback(self, message: str, success: bool) -> None:
+        self.register_message_var.set(message)
+        self.register_success = success
+        self.register_feedback_label.configure(
+            fg="#16a34a" if success else "#d32f2f"
+        )
+
+    def register(self) -> None:
+        if self.register_loading:
+            return
+        surname = self.register_surname_var.get().strip()
+        password = self.register_password_var.get().strip()
+        confirm = self.register_confirm_var.get().strip()
+
+        if not surname or not password or not confirm:
+            self._set_register_feedback("Заповніть усі поля", False)
+            return
+        if len(password) < 6:
+            self._set_register_feedback("Пароль має містити щонайменше 6 символів", False)
+            return
+        if password != confirm:
+            self._set_register_feedback("Паролі не співпадають", False)
+            return
+
+        def worker() -> None:
+            try:
+                UserApi.register_user(surname, password)
+                self.after(
+                    0,
+                    lambda: self._on_registration_success(
+                        "Заявку на реєстрацію надіслано. Дочекайтесь підтвердження адміністратора."
+                    ),
+                )
+            except ApiException as exc:
+                self.after(0, lambda: self._set_register_feedback(exc.message, False))
+            except requests.RequestException:
+                 self.after(
+                    0,
+                    lambda: self._set_register_feedback(
+                        "Не вдалося з’єднатися з сервером. Спробуйте пізніше.",
+                        False,
+                    ),
+                )
+            finally:
+                self.after(0, lambda: self._set_register_loading(False))
+
+        self._set_register_feedback("", False)
+        self._set_register_loading(True)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_registration_success(self, message: str) -> None:
+        self._set_register_feedback(message, True)
+        self.register_surname_var.set("")
+        self.register_password_var.set("")
+        self.register_confirm_var.set("")
+
+    def open_admin_panel(self) -> None:
+        password = simpledialog.askstring(
+            "Адмін-панель",
+            "Введіть пароль адміністратора",
+            show="*",
+            parent=self,
+        )
+        if not password:
+            return
+
+        def worker() -> None:
+            try:
+                token = UserApi.admin_login(password.strip())
+
+                def launch() -> None:
+                    AdminPanelWindow(self.app, token)
+
+                self.after(0, launch)
+            except ApiException as exc:
+                self.after(0, lambda: messagebox.showerror("Помилка", exc.message))
+            except requests.RequestException:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Помилка", "Не вдалося з’єднатися з сервером"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+
+class AdminPanelWindow(tk.Toplevel):
+    def __init__(self, app: TrackingApp, token: str) -> None:
+        super().__init__(app)
+        self.app = app
+        self.admin_token = token
+        self.title("Панель адміністратора")
+        self.configure(bg=PRIMARY_BG)
+        self.geometry("1280x760")
+        self.minsize(1100, 680)
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        self.status_var = tk.StringVar(value="Завантаження даних...")
+        self.loading = False
+        self.pending_users: List[PendingUser] = []
+        self.managed_users: List[ManagedUser] = []
+        self.role_passwords: Dict[UserRole, str] = {}
+
+        header = tk.Frame(self, bg=SECONDARY_BG, padx=32, pady=20)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=0)
+
+        tk.Label(
+            header,
+            text="Панель адміністратора",
+            font=("Segoe UI", 28, "bold"),
+            fg="white",
+            bg=SECONDARY_BG,
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            header,
+            text="Керуйте користувачами та запитами на реєстрацію",
+            font=("Segoe UI", 12),
+            fg="#cbd5f5",
+            bg=SECONDARY_BG,
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        ttk.Button(
+            header,
+            text="Оновити дані",
+            style="Secondary.TButton",
+            command=self.refresh_data,
+        ).grid(row=0, column=1, rowspan=2, sticky="e")
+
+        body = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
+        body.grid(row=1, column=0, sticky="nsew")
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+
+        notebook = ttk.Notebook(body)
+        notebook.grid(row=0, column=0, sticky="nsew")
+
+        self.pending_tab = tk.Frame(notebook, bg=CARD_BG)
+        notebook.add(self.pending_tab, text="Запити на реєстрацію")
+        self._build_pending_tab(self.pending_tab)
+
+        self.users_tab = tk.Frame(notebook, bg=CARD_BG)
+        notebook.add(self.users_tab, text="Користувачі")
+        self._build_users_tab(self.users_tab)
+
+        self.passwords_tab = tk.Frame(notebook, bg=CARD_BG)
+        notebook.add(self.passwords_tab, text="Паролі ролей")
+        self._build_passwords_tab(self.passwords_tab)
+
+        status_bar = tk.Frame(self, bg=SECONDARY_BG, padx=32, pady=12)
+        status_bar.grid(row=2, column=0, sticky="ew")
+        tk.Label(
+            status_bar,
+            textvariable=self.status_var,
+            font=("Segoe UI", 12),
+            fg="#e2e8f0",
+            bg=SECONDARY_BG,
+        ).grid(row=0, column=0, sticky="w")
+
+        self.refresh_data()
+
+    def _build_pending_tab(self, parent: tk.Misc) -> None:
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            parent,
+            text="Очікуючі запити",
+            style="CardHeading.TLabel",
+        ).grid(row=0, column=0, sticky="w", padx=24, pady=(24, 12))
+
+        container = tk.Frame(parent, bg=CARD_BG)
+        container.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 12))
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        columns = ("surname", "created")
+        self.pending_tree = ttk.Treeview(
+            container,
+            columns=columns,
+            show="headings",
+            height=8,
+        )
+        self.pending_tree.heading("surname", text="Прізвище")
+        self.pending_tree.heading("created", text="Створено")
+        self.pending_tree.column("surname", width=280)
+        self.pending_tree.column("created", width=200)
+        self.pending_tree.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.pending_tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.pending_tree.configure(yscrollcommand=scrollbar.set)
+
+        actions = tk.Frame(parent, bg=CARD_BG)
+        actions.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 24))
+        actions.columnconfigure((0, 1, 2, 3), weight=1)
+
+        ttk.Button(
+            actions,
+            text="Підтвердити як адміністратор",
+            style="Secondary.TButton",
+            command=lambda: self.approve_selected(UserRole.ADMIN),
+        ).grid(row=0, column=0, padx=6, sticky="ew")
+        ttk.Button(
+            actions,
+            text="Підтвердити як оператор",
+            style="Secondary.TButton",
+            command=lambda: self.approve_selected(UserRole.OPERATOR),
+        ).grid(row=0, column=1, padx=6, sticky="ew")
+        ttk.Button(
+            actions,
+            text="Підтвердити як перегляд",
+            style="Secondary.TButton",
+            command=lambda: self.approve_selected(UserRole.VIEWER),
+        ).grid(row=0, column=2, padx=6, sticky="ew")
+        ttk.Button(
+            actions,
+            text="Відхилити",
+            style="Secondary.TButton",
+            command=self.reject_selected,
+        ).grid(row=0, column=3, padx=6, sticky="ew")
+
+    def _build_users_tab(self, parent: tk.Misc) -> None:
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            parent,
+            text="Зареєстровані користувачі",
+            style="CardHeading.TLabel",
+        ).grid(row=0, column=0, sticky="w", padx=24, pady=(24, 12))
+
+        container = tk.Frame(parent, bg=CARD_BG)
+        container.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 12))
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        columns = ("surname", "role", "active", "created", "updated")
+        self.users_tree = ttk.Treeview(
+            container,
+            columns=columns,
+            show="headings",
+            height=12,
+        )
+        headings = {
+            "surname": "Прізвище",
+            "role": "Роль",
+            "active": "Статус",
+            "created": "Створено",
+            "updated": "Оновлено",
+        }
+        widths = {
+            "surname": 220,
+            "role": 140,
+            "active": 140,
+            "created": 160,
+            "updated": 160,
+        }
+        for key in columns:
+            self.users_tree.heading(key, text=headings[key])
+            self.users_tree.column(key, width=widths[key])
+        self.users_tree.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.users_tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.users_tree.configure(yscrollcommand=scrollbar.set)
+
+        actions = tk.Frame(parent, bg=CARD_BG)
+        actions.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 24))
+        actions.columnconfigure((0, 1, 2, 3, 4), weight=1)
+
+        ttk.Button(
+            actions,
+            text="Зробити адміністратором",
+            style="Secondary.TButton",
+            command=lambda: self.set_user_role(UserRole.ADMIN),
+        ).grid(row=0, column=0, padx=6, sticky="ew")
+        ttk.Button(
+            actions,
+            text="Зробити оператором",
+            style="Secondary.TButton",
+            command=lambda: self.set_user_role(UserRole.OPERATOR),
+        ).grid(row=0, column=1, padx=6, sticky="ew")
+        ttk.Button(
+            actions,
+            text="Зробити перегляд",
+            style="Secondary.TButton",
+            command=lambda: self.set_user_role(UserRole.VIEWER),
+        ).grid(row=0, column=2, padx=6, sticky="ew")
+        ttk.Button(
+            actions,
+            text="Активувати/Призупинити",
+            style="Secondary.TButton",
+            command=self.toggle_user_active,
+        ).grid(row=0, column=3, padx=6, sticky="ew")
+        ttk.Button(
+            actions,
+            text="Видалити",
+            style="Secondary.TButton",
+            command=self.delete_user,
+        ).grid(row=0, column=4, padx=6, sticky="ew")
+
+    def _build_passwords_tab(self, parent: tk.Misc) -> None:
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            parent,
+            text="API паролі для ролей",
+            style="CardHeading.TLabel",
+        ).grid(row=0, column=0, sticky="w", padx=24, pady=(24, 12))
+
+        container = tk.Frame(parent, bg=CARD_BG)
+        container.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 12))
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        columns = ("role", "password")
+        self.passwords_tree = ttk.Treeview(
+            container,
+            columns=columns,
+            show="headings",
+            height=6,
+        )
+        self.passwords_tree.heading("role", text="Роль")
+        self.passwords_tree.heading("password", text="Поточний пароль")
+        self.passwords_tree.column("role", width=200)
+        self.passwords_tree.column("password", width=320)
+        self.passwords_tree.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.passwords_tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.passwords_tree.configure(yscrollcommand=scrollbar.set)
+
+        actions = tk.Frame(parent, bg=CARD_BG)
+        actions.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 24))
+        actions.columnconfigure(0, weight=1)
+
+        ttk.Button(
+            actions,
+            text="Змінити пароль",
+            style="Secondary.TButton",
+            command=self.update_role_password,
+        ).grid(row=0, column=0, sticky="e", padx=6)
+
+    def refresh_data(self) -> None:
+        if self.loading:
+            return
+        self.loading = True
+        self.status_var.set("Оновлення даних...")
+
+        def worker() -> None:
+            try:
+                pending = UserApi.fetch_pending_users(self.admin_token)
+                users = UserApi.fetch_users(self.admin_token)
+                passwords = UserApi.fetch_role_passwords(self.admin_token)
+                self.after(0, lambda: self._apply_admin_data(pending, users, passwords))
+            except ApiException as exc:
+                self.after(0, lambda: self.status_var.set(f"Помилка: {exc.message}"))
+            except requests.RequestException:
+                self.after(0, lambda: self.status_var.set("Помилка зв’язку з сервером"))
+            finally:
+                self.after(0, lambda: setattr(self, "loading", False))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_admin_data(
+        self,
+        pending: List[PendingUser],
+        users: List[ManagedUser],
+        passwords: Dict[UserRole, str],
+    ) -> None:
+        self.pending_users = pending
+        self.managed_users = users
+        self.role_passwords = {role: passwords.get(role, "") for role in UserRole}
+        self._populate_pending()
+        self._populate_users()
+        self._populate_passwords()
+        self.status_var.set(
+            f"Запити: {len(pending)} | Користувачі: {len(users)} | Ролі: {len(passwords)}"
+        )
+
+    @staticmethod
+    def _format_datetime(value: Optional[datetime]) -> str:
+        if not value:
+            return "—"
+        return value.astimezone().strftime("%d.%m.%Y %H:%M")
+
+    def _populate_pending(self) -> None:
+        for row in self.pending_tree.get_children():
+            self.pending_tree.delete(row)
+        if not self.pending_users:
+            self.pending_tree.insert("", "end", values=("Немає запитів", "—"))
+            return
+        for user in self.pending_users:
+            self.pending_tree.insert(
+                "",
+                "end",
+                iid=str(user.id),
+                values=(user.surname, self._format_datetime(user.created_at)),
+            )
+
+    def _populate_users(self) -> None:
+        for row in self.users_tree.get_children():
+            self.users_tree.delete(row)
+        if not self.managed_users:
+            self.users_tree.insert(
+                "",
+                "end",
+                values=("Немає користувачів", "—", "—", "—", "—"),
+            )
+            return
+        for user in self.managed_users:
+            status = "Активний" if user.is_active else "Призупинено"
+            self.users_tree.insert(
+                "",
+                "end",
+                iid=str(user.id),
+                values=(
+                    user.surname,
+                    user.role.label,
+                    status,
+                    self._format_datetime(user.created_at),
+                    self._format_datetime(user.updated_at),
+                ),
+            )
+
+    def _populate_passwords(self) -> None:
+        for row in self.passwords_tree.get_children():
+            self.passwords_tree.delete(row)
+        if not self.role_passwords:
+            self.passwords_tree.insert("", "end", values=("—", "Немає даних"))
+            return
+        for role, password in self.role_passwords.items():
+            masked = "*" * len(password) if password else "—"
+            self.passwords_tree.insert(
+                "",
+                "end",
+                iid=role.value,
+                values=(role.label, masked),
+            )
+
+    def _get_selected_pending(self) -> Optional[PendingUser]:
+        item_id = self.pending_tree.focus()
+        if not item_id:
+            messagebox.showinfo("Запити", "Оберіть запит у списку")
+            return None
+        try:
+            ident = int(float(item_id))
+        except ValueError:
+            return None
+        for user in self.pending_users:
+            if user.id == ident:
+                return user
+        return None
+
+    def approve_selected(self, role: UserRole) -> None:
+        if self.loading:
+            return
+        user = self._get_selected_pending()
+        if not user:
+            return
+
+        if not messagebox.askyesno(
+            "Підтвердження",
+            f"Надати доступ користувачу {user.surname} як {role.label}?",
+        ):
+            return
+
+        self.status_var.set("Підтвердження запиту...")
+
+        def worker() -> None:
+            try:
+                UserApi.approve_pending_user(self.admin_token, user.id, role)
+                self.after(0, lambda: self.status_var.set("Запит підтверджено"))
+                self.after(0, self.refresh_data)
+            except ApiException as exc:
+                self.after(0, lambda: messagebox.showerror("Помилка", exc.message))
+            except requests.RequestException:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Помилка", "Не вдалося з’єднатися з сервером"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def reject_selected(self) -> None:
+        if self.loading:
+            return
+        user = self._get_selected_pending()
+        if not user:
+            return
+        if not messagebox.askyesno(
+            "Відхилити запит",
+            f"Відхилити заявку користувача {user.surname}?",
+        ):
+            return
+
+        self.status_var.set("Відхилення запиту...")
+
+        def worker() -> None:
+            try:
+                UserApi.reject_pending_user(self.admin_token, user.id)
+                self.after(0, lambda: self.status_var.set("Запит відхилено"))
+                self.after(0, self.refresh_data)
+            except ApiException as exc:
+                self.after(0, lambda: messagebox.showerror("Помилка", exc.message))
+            except requests.RequestException:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Помилка", "Не вдалося з’єднатися з сервером"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _get_selected_user(self) -> Optional[ManagedUser]:
+        item_id = self.users_tree.focus()
+        if not item_id:
+            messagebox.showinfo("Користувачі", "Оберіть користувача зі списку")
+            return None
+        try:
+            ident = int(float(item_id))
+        except ValueError:
+            return None
+        for user in self.managed_users:
+            if user.id == ident:
+                return user
+        return None
+
+    def set_user_role(self, role: UserRole) -> None:
+        if self.loading:
+            return
+        user = self._get_selected_user()
+        if not user:
+            return
+        if not messagebox.askyesno(
+            "Зміна ролі",
+            f"Надати роль {role.label} користувачу {user.surname}?",
+        ):
+            return
+
+        def worker() -> None:
+            try:
+                UserApi.update_user(self.admin_token, user.id, role=role)
+                self.after(0, lambda: self.status_var.set("Роль оновлено"))
+                self.after(0, self.refresh_data)
+            except ApiException as exc:
+                self.after(0, lambda: messagebox.showerror("Помилка", exc.message))
+            except requests.RequestException:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Помилка", "Не вдалося з’єднатися з сервером"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def toggle_user_active(self) -> None:
+        if self.loading:
+            return
+        user = self._get_selected_user()
+        if not user:
+            return
+        new_state = not user.is_active
+        action = "активувати" if new_state else "призупинити"
+        if not messagebox.askyesno(
+            "Зміна статусу",
+            f"Бажаєте {action} користувача {user.surname}?",
+        ):
+            return
+
+        def worker() -> None:
+            try:
+                UserApi.update_user(
+                    self.admin_token,
+                    user.id,
+                    is_active=new_state,
+                )
+                state_text = "активовано" if new_state else "призупинено"
+                self.after(0, lambda: self.status_var.set(f"Користувача {state_text}"))
+                self.after(0, self.refresh_data)
+            except ApiException as exc:
+                self.after(0, lambda: messagebox.showerror("Помилка", exc.message))
+            except requests.RequestException:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Помилка", "Не вдалося з’єднатися з сервером"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def delete_user(self) -> None:
+        if self.loading:
+            return
+        user = self._get_selected_user()
+        if not user:
+            return
+        if not messagebox.askyesno(
+            "Видалення",
+            f"Видалити користувача {user.surname}? Це дію неможливо скасувати.",
+        ):
+            return
+
+        def worker() -> None:
+            try:
+                UserApi.delete_user(self.admin_token, user.id)
+                self.after(0, lambda: self.status_var.set("Користувача видалено"))
+                self.after(0, self.refresh_data)
+            except ApiException as exc:
+                self.after(0, lambda: messagebox.showerror("Помилка", exc.message))
+            except requests.RequestException:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Помилка", "Не вдалося з’єднатися з сервером"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def update_role_password(self) -> None:
+        if self.loading:
+            return
+        item_id = self.passwords_tree.focus()
+        if not item_id:
+            messagebox.showinfo("Паролі", "Оберіть роль зі списку")
+            return
+        role = normalize_role(item_id, None)
+        current = self.role_passwords.get(role, "")
+        new_password = simpledialog.askstring(
+            "Оновити пароль",
+            f"Введіть новий пароль для ролі {role.label}",
+            show="*",
+            initialvalue=current,
+            parent=self,
+        )
+        if new_password is None:
+            return
+
+        def worker() -> None:
+            try:
+                UserApi.update_role_password(
+                    self.admin_token,
+                    role,
+                    new_password.strip(),
+                )
+                self.after(0, lambda: self.status_var.set("Пароль оновлено"))
+                self.after(0, self.refresh_data)
+            except ApiException as exc:
+                self.after(0, lambda: messagebox.showerror("Помилка", exc.message))
+            except requests.RequestException:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Помилка", "Не вдалося з’єднатися з сервером"
+                    ),
+                )
+
         threading.Thread(target=worker, daemon=True).start()
 
 
@@ -920,7 +2102,7 @@ class ScannerFrame(BaseFrame):
         self.step_title_var = tk.StringVar(value="Введіть BoxID")
 
         self.role_info = get_role_info(
-            app.state_data.access_level, app.state_data.last_password
+            app.state_data.user_role, app.state_data.access_level
         )
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
@@ -1249,7 +2431,7 @@ class ScannerFrame(BaseFrame):
 class HistoryFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
-        self.role_info = get_role_info(app.state_data.access_level, app.state_data.last_password)
+        self.role_info = get_role_info(app.state_data.user_role, app.state_data.access_level)
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
@@ -1592,7 +2774,7 @@ class HistoryFrame(BaseFrame):
 class StatisticsFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
-        self.role_info = get_role_info(app.state_data.access_level, app.state_data.last_password)
+        self.role_info = get_role_info(app.state_data.user_role, app.state_data.access_level)
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
@@ -2296,7 +3478,7 @@ class StatisticsFrame(BaseFrame):
 class ErrorsFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
-        self.role_info = get_role_info(app.state_data.access_level, app.state_data.last_password)
+        self.role_info = get_role_info(app.state_data.user_role, app.state_data.access_level)
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
