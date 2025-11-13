@@ -9,7 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass, asdict, fields
 from datetime import datetime, date, time as dtime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -840,6 +840,53 @@ class BaseFrame(tk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
+    def enable_tree_copy(self, tree: ttk.Treeview, columns: Sequence[str]) -> None:
+        """Allow copying values from a Treeview using Ctrl+C."""
+
+        if not columns:
+            return
+
+        preferred_default = next((col for col in columns if col.lower() == "ttn"), columns[0])
+        state: Dict[str, str] = {"column": preferred_default}
+
+        def remember_column(event: tk.Event) -> None:
+            column_id = tree.identify_column(event.x)
+            if column_id == "#0":
+                state["column"] = "#0"
+                return
+            try:
+                index = int(column_id.lstrip("#")) - 1
+            except ValueError:
+                return
+            if 0 <= index < len(columns):
+                state["column"] = columns[index]
+
+        def copy_selected(event: tk.Event) -> str:
+            selection = tree.focus()
+            if not selection:
+                selected = tree.selection()
+                if selected:
+                    selection = selected[0]
+            if not selection:
+                return "break"
+
+            column = state.get("column")
+            if column == "#0":
+                value = tree.item(selection, "text")
+            else:
+                value = tree.set(selection, column or preferred_default)
+
+            if value is None:
+                value = ""
+
+            self.clipboard_clear()
+            self.clipboard_append(str(value))
+            return "break"
+
+        tree.bind("<ButtonRelease-1>", remember_column, add=True)
+        tree.bind("<Control-c>", copy_selected, add=True)
+        tree.bind("<Control-C>", copy_selected, add=True)
+
     def perform_logout(self) -> None:
         if not messagebox.askyesno("Підтвердження", "Вийти з акаунту?"):
             return
@@ -864,6 +911,7 @@ class TrackingApp(tk.Tk):
 
         self.style = ttk.Style(self)
         self._setup_styles()
+        self._register_clipboard_shortcuts()
 
         if self.state_data.token and self.state_data.user_name:
             self.show_scanner()
@@ -871,6 +919,39 @@ class TrackingApp(tk.Tk):
             self.show_username()
         else:
             self.show_login()
+
+    def _register_clipboard_shortcuts(self) -> None:
+        def bind(widget_class: str, sequence: str, handler: Callable[[tk.Event], str]) -> None:
+            self.bind_class(widget_class, sequence, handler, add=True)
+
+        def copy(event: tk.Event) -> str:
+            event.widget.event_generate("<<Copy>>")
+            return "break"
+
+        def paste(event: tk.Event) -> str:
+            event.widget.event_generate("<<Paste>>")
+            return "break"
+
+        def cut(event: tk.Event) -> str:
+            event.widget.event_generate("<<Cut>>")
+            return "break"
+
+        editable_classes = (
+            "Entry",
+            "TEntry",
+            "Spinbox",
+            "TSpinbox",
+            "Combobox",
+            "TCombobox",
+            "Text",
+        )
+        for widget_class in editable_classes:
+            bind(widget_class, "<Control-c>", copy)
+            bind(widget_class, "<Control-C>", copy)
+            bind(widget_class, "<Control-v>", paste)
+            bind(widget_class, "<Control-V>", paste)
+            bind(widget_class, "<Control-x>", cut)
+            bind(widget_class, "<Control-X>", cut)
 
     def _setup_styles(self) -> None:
         try:
@@ -2610,6 +2691,7 @@ class HistoryFrame(BaseFrame):
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
+        self.enable_tree_copy(self.tree, columns)
 
         self.records: List[Dict[str, Any]] = []
         self.filtered: List[Dict[str, Any]] = []
@@ -3623,6 +3705,7 @@ class ErrorsFrame(BaseFrame):
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
+        self.enable_tree_copy(self.tree, columns)
 
         if self.role_info["can_clear_errors"]:
             self.tree.bind("<Double-1>", self.delete_selected_error)
