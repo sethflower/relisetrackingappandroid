@@ -1901,7 +1901,7 @@ class HistoryPage(BasePage):
         ):
             button_row.layout().addWidget(button)
         button_row.layout().addStretch(1)
-        filters_layout.addLayout(button_row)
+        filters_layout.addWidget(button_row)
 
         self.date_display = QLabel("Дата: —")
         self.time_display = QLabel("Проміжок: —")
@@ -2178,7 +2178,7 @@ class StatisticsPage(BasePage):
         ):
             filters.layout().addWidget(button)
         filters.layout().addStretch(1)
-        layout.addLayout(filters)
+        layout.addWidget(filters)
 
         metrics_row = FlowRow()
         self.total_scans_label = QLabel("0")
@@ -2190,7 +2190,7 @@ class StatisticsPage(BasePage):
         metrics_row.layout().addWidget(MetricCard("Помилок", self.total_errors_label, accent=ERROR_COLOR))
         metrics_row.layout().addWidget(MetricCard("Користувачів з помилками", self.error_users_label))
         metrics_row.layout().addStretch(1)
-        layout.addLayout(metrics_row)
+        layout.addWidget(metrics_row)
 
         self.top_operator_label = QLabel("—")
         self.top_operator_count = QLabel("0")
@@ -2200,7 +2200,7 @@ class StatisticsPage(BasePage):
         insights_row.layout().addWidget(self._build_insight_card("🏆 Найактивніший оператор", True))
         insights_row.layout().addWidget(self._build_insight_card("⚠️ Найбільше помилок", False))
         insights_row.layout().addStretch(1)
-        layout.addLayout(insights_row)
+        layout.addWidget(insights_row)
 
         tables_container = QHBoxLayout()
         self.scan_table = QTableWidget(0, 2, self)
@@ -2704,3 +2704,4 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+
