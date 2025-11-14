@@ -1710,37 +1710,45 @@ class AdminPanelWindow(tk.Toplevel):
         self.managed_users: List[ManagedUser] = []
         self.role_passwords: Dict[UserRole, str] = {}
 
+        self._layout_mode: Optional[str] = None
+        self._action_groups: list[tuple[tk.Frame, list[ttk.Button]]] = []
+
         header = tk.Frame(self, bg=SECONDARY_BG, padx=32, pady=20)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
         header.columnconfigure(1, weight=0)
+        self.header = header
 
-        tk.Label(
+        self.header_title = tk.Label(
             header,
             text="Панель адміністратора",
             font=("Segoe UI", 28, "bold"),
             fg="white",
             bg=SECONDARY_BG,
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
+        )
+        self.header_title.grid(row=0, column=0, sticky="w")
+        self.header_subtitle = tk.Label(
             header,
             text="Керуйте користувачами та запитами на реєстрацію",
             font=("Segoe UI", 12),
             fg="#cbd5f5",
             bg=SECONDARY_BG,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        )
+        self.header_subtitle.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-        ttk.Button(
+        self.refresh_button = ttk.Button(
             header,
             text="Оновити дані",
             style="Secondary.TButton",
             command=self.refresh_data,
-        ).grid(row=0, column=1, rowspan=2, sticky="e")
+        )
+        self.refresh_button.grid(row=0, column=1, rowspan=2, sticky="e")
 
         body = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
         body.grid(row=1, column=0, sticky="nsew")
         body.rowconfigure(0, weight=1)
         body.columnconfigure(0, weight=1)
+        self.body = body
 
         notebook = ttk.Notebook(body)
         notebook.grid(row=0, column=0, sticky="nsew")
@@ -1759,6 +1767,7 @@ class AdminPanelWindow(tk.Toplevel):
 
         status_bar = tk.Frame(self, bg=SECONDARY_BG, padx=32, pady=12)
         status_bar.grid(row=2, column=0, sticky="ew")
+        self.status_bar = status_bar
         tk.Label(
             status_bar,
             textvariable=self.status_var,
@@ -1768,6 +1777,9 @@ class AdminPanelWindow(tk.Toplevel):
         ).grid(row=0, column=0, sticky="w")
 
         self.refresh_data()
+        self.bind("<Configure>", self._handle_resize, add="+")
+        self.update_idletasks()
+        self._apply_responsive_layout(self.winfo_width())
 
     def _build_pending_tab(self, parent: tk.Misc) -> None:
         parent.columnconfigure(0, weight=1)
@@ -1793,8 +1805,8 @@ class AdminPanelWindow(tk.Toplevel):
         )
         self.pending_tree.heading("surname", text="Прізвище")
         self.pending_tree.heading("created", text="Створено")
-        self.pending_tree.column("surname", width=280)
-        self.pending_tree.column("created", width=200)
+        self.pending_tree.column("surname", width=280, anchor="w", stretch=True)
+        self.pending_tree.column("created", width=200, anchor="center", stretch=True)
         self.pending_tree.grid(row=0, column=0, sticky="nsew")
 
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.pending_tree.yview)
@@ -1805,30 +1817,35 @@ class AdminPanelWindow(tk.Toplevel):
         actions.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 24))
         actions.columnconfigure((0, 1, 2, 3), weight=1)
 
-        ttk.Button(
-            actions,
-            text="Підтвердити як адміністратор",
-            style="Secondary.TButton",
-            command=lambda: self.approve_selected(UserRole.ADMIN),
-        ).grid(row=0, column=0, padx=6, sticky="ew")
-        ttk.Button(
-            actions,
-            text="Підтвердити як оператор",
-            style="Secondary.TButton",
-            command=lambda: self.approve_selected(UserRole.OPERATOR),
-        ).grid(row=0, column=1, padx=6, sticky="ew")
-        ttk.Button(
-            actions,
-            text="Підтвердити як перегляд",
-            style="Secondary.TButton",
-            command=lambda: self.approve_selected(UserRole.VIEWER),
-        ).grid(row=0, column=2, padx=6, sticky="ew")
-        ttk.Button(
-            actions,
-            text="Відхилити",
-            style="Secondary.TButton",
-            command=self.reject_selected,
-        ).grid(row=0, column=3, padx=6, sticky="ew")
+        pending_buttons = [
+            ttk.Button(
+                actions,
+                text="Підтвердити як адміністратор",
+                style="Secondary.TButton",
+                command=lambda: self.approve_selected(UserRole.ADMIN),
+            ),
+            ttk.Button(
+                actions,
+                text="Підтвердити як оператор",
+                style="Secondary.TButton",
+                command=lambda: self.approve_selected(UserRole.OPERATOR),
+            ),
+            ttk.Button(
+                actions,
+                text="Підтвердити як перегляд",
+                style="Secondary.TButton",
+                command=lambda: self.approve_selected(UserRole.VIEWER),
+            ),
+            ttk.Button(
+                actions,
+                text="Відхилити",
+                style="Secondary.TButton",
+                command=self.reject_selected,
+            ),
+        ]
+        for idx, button in enumerate(pending_buttons):
+            button.grid(row=0, column=idx, padx=6, sticky="ew")
+        self._action_groups.append((actions, pending_buttons))
 
     def _build_users_tab(self, parent: tk.Misc) -> None:
         parent.columnconfigure(0, weight=1)
@@ -1860,15 +1877,16 @@ class AdminPanelWindow(tk.Toplevel):
             "updated": "Оновлено",
         }
         widths = {
-            "surname": 220,
-            "role": 140,
-            "active": 140,
-            "created": 160,
-            "updated": 160,
+            "surname": (220, "w"),
+            "role": (140, "center"),
+            "active": (140, "center"),
+            "created": (160, "center"),
+            "updated": (160, "center"),
         }
         for key in columns:
             self.users_tree.heading(key, text=headings[key])
-            self.users_tree.column(key, width=widths[key])
+            width, anchor = widths[key]
+            self.users_tree.column(key, width=width, anchor=anchor, stretch=True)
         self.users_tree.grid(row=0, column=0, sticky="nsew")
 
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.users_tree.yview)
@@ -1879,36 +1897,41 @@ class AdminPanelWindow(tk.Toplevel):
         actions.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 24))
         actions.columnconfigure((0, 1, 2, 3, 4), weight=1)
 
-        ttk.Button(
-            actions,
-            text="Зробити адміністратором",
-            style="Secondary.TButton",
-            command=lambda: self.set_user_role(UserRole.ADMIN),
-        ).grid(row=0, column=0, padx=6, sticky="ew")
-        ttk.Button(
-            actions,
-            text="Зробити оператором",
-            style="Secondary.TButton",
-            command=lambda: self.set_user_role(UserRole.OPERATOR),
-        ).grid(row=0, column=1, padx=6, sticky="ew")
-        ttk.Button(
-            actions,
-            text="Зробити перегляд",
-            style="Secondary.TButton",
-            command=lambda: self.set_user_role(UserRole.VIEWER),
-        ).grid(row=0, column=2, padx=6, sticky="ew")
-        ttk.Button(
-            actions,
-            text="Активувати/Призупинити",
-            style="Secondary.TButton",
-            command=self.toggle_user_active,
-        ).grid(row=0, column=3, padx=6, sticky="ew")
-        ttk.Button(
-            actions,
-            text="Видалити",
-            style="Secondary.TButton",
-            command=self.delete_user,
-        ).grid(row=0, column=4, padx=6, sticky="ew")
+        user_buttons = [
+            ttk.Button(
+                actions,
+                text="Зробити адміністратором",
+                style="Secondary.TButton",
+                command=lambda: self.set_user_role(UserRole.ADMIN),
+            ),
+            ttk.Button(
+                actions,
+                text="Зробити оператором",
+                style="Secondary.TButton",
+                command=lambda: self.set_user_role(UserRole.OPERATOR),
+            ),
+            ttk.Button(
+                actions,
+                text="Зробити перегляд",
+                style="Secondary.TButton",
+                command=lambda: self.set_user_role(UserRole.VIEWER),
+            ),
+            ttk.Button(
+                actions,
+                text="Активувати/Призупинити",
+                style="Secondary.TButton",
+                command=self.toggle_user_active,
+            ),
+            ttk.Button(
+                actions,
+                text="Видалити",
+                style="Secondary.TButton",
+                command=self.delete_user,
+            ),
+        ]
+        for idx, button in enumerate(user_buttons):
+            button.grid(row=0, column=idx, padx=6, sticky="ew")
+        self._action_groups.append((actions, user_buttons))
 
     def _build_passwords_tab(self, parent: tk.Misc) -> None:
         parent.columnconfigure(0, weight=1)
@@ -1934,8 +1957,8 @@ class AdminPanelWindow(tk.Toplevel):
         )
         self.passwords_tree.heading("role", text="Роль")
         self.passwords_tree.heading("password", text="Поточний пароль")
-        self.passwords_tree.column("role", width=200)
-        self.passwords_tree.column("password", width=320)
+        self.passwords_tree.column("role", width=200, anchor="w", stretch=True)
+        self.passwords_tree.column("password", width=320, anchor="w", stretch=True)
         self.passwords_tree.grid(row=0, column=0, sticky="nsew")
 
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.passwords_tree.yview)
@@ -1946,12 +1969,14 @@ class AdminPanelWindow(tk.Toplevel):
         actions.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 24))
         actions.columnconfigure(0, weight=1)
 
-        ttk.Button(
+        password_button = ttk.Button(
             actions,
             text="Змінити пароль",
             style="Secondary.TButton",
             command=self.update_role_password,
-        ).grid(row=0, column=0, sticky="e", padx=6)
+        )
+        password_button.grid(row=0, column=0, sticky="e", padx=6)
+        self._action_groups.append((actions, [password_button]))
 
     def refresh_data(self) -> None:
         if self.loading:
@@ -1973,6 +1998,60 @@ class AdminPanelWindow(tk.Toplevel):
                 self.after(0, lambda: setattr(self, "loading", False))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _handle_resize(self, event: tk.Event) -> None:
+        if event.widget is not self:
+            return
+        width = getattr(event, "width", self.winfo_width())
+        self._apply_responsive_layout(width)
+
+    def _apply_responsive_layout(self, width: int) -> None:
+        mode = "compact" if width < 1220 else "wide"
+        if mode == self._layout_mode:
+            return
+        self._layout_mode = mode
+
+        padding = (24, 18) if mode == "compact" else (32, 20)
+        self.header.configure(padx=padding[0], pady=padding[1])
+        _grid_reset(self.header)
+        if mode == "compact":
+            self.header.columnconfigure(0, weight=1)
+            self.header_title.configure(font=("Segoe UI", 24, "bold"))
+            self.header_title.grid(row=0, column=0, sticky="w")
+            self.header_subtitle.grid(row=1, column=0, sticky="w", pady=(6, 0))
+            self.refresh_button.grid(row=2, column=0, sticky="ew", pady=(18, 0))
+            self.body.configure(padx=18, pady=18)
+            self.status_bar.configure(padx=24, pady=12)
+        else:
+            self.header.columnconfigure(0, weight=1)
+            self.header.columnconfigure(1, weight=0)
+            self.header_title.configure(font=("Segoe UI", 28, "bold"))
+            self.header_title.grid(row=0, column=0, sticky="w")
+            self.header_subtitle.grid(row=1, column=0, sticky="w", pady=(4, 0))
+            self.refresh_button.grid(row=0, column=1, rowspan=2, sticky="e")
+            self.body.configure(padx=24, pady=24)
+            self.status_bar.configure(padx=32, pady=12)
+
+        for frame, buttons in self._action_groups:
+            _grid_reset(frame)
+            if mode == "compact":
+                frame.configure(padx=24, pady=(0, 24))
+                for column in range(len(buttons)):
+                    frame.columnconfigure(column, weight=0)
+                frame.columnconfigure(0, weight=1)
+                for idx, button in enumerate(buttons):
+                    pady = (0, 12) if idx < len(buttons) - 1 else (0, 0)
+                    button.grid(row=idx, column=0, sticky="ew", pady=pady)
+            else:
+                frame.configure(padx=24, pady=(0, 24))
+                if len(buttons) == 1:
+                    frame.columnconfigure(0, weight=1)
+                    buttons[0].grid(row=0, column=0, sticky="e", padx=6)
+                else:
+                    for column in range(len(buttons)):
+                        frame.columnconfigure(column, weight=1)
+                    for idx, button in enumerate(buttons):
+                        button.grid(row=0, column=idx, sticky="ew", padx=6)
 
     def _apply_admin_data(
         self,
