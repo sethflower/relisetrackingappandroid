@@ -45,6 +45,13 @@ ERROR_COLOR = "#d92d20"
 SUCCESS_COLOR = "#039855"
 WARNING_COLOR = "#f79009"
 
+
+def _grid_reset(widget: tk.Misc) -> None:
+    """Remove all children from the grid manager."""
+
+    for child in widget.grid_slaves():
+        child.grid_forget()
+
 def maximize_window(window: tk.Misc) -> None:
     """Expand a Tk window to occupy the entire screen."""
 
@@ -848,6 +855,19 @@ class BaseFrame(tk.Frame):
         self.pack_propagate(False)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
+        self._responsive_handlers: list[Callable[[int, int], None]] = []
+        self.bind("<Configure>", self._on_resize, add="+")
+
+    def register_responsive(self, handler: Callable[[int, int], None]) -> None:
+        """Register a callback that adapts layout to width/height changes."""
+
+        self._responsive_handlers.append(handler)
+
+    def _on_resize(self, event: tk.Event) -> None:
+        width = getattr(event, "width", self.winfo_width())
+        height = getattr(event, "height", self.winfo_height())
+        for handler in self._responsive_handlers:
+            handler(width, height)
 
     def perform_logout(self) -> None:
         if not messagebox.askyesno("Підтвердження", "Вийти з акаунту?"):
@@ -913,13 +933,16 @@ class BaseFrame(tk.Frame):
 
         nav = tk.Frame(app_bar, bg=PRIMARY_BG)
         nav.grid(row=1, column=0, columnspan=2, sticky="e", pady=(28, 0))
+        nav_buttons: list[ttk.Button] = []
         for column, (label, command) in enumerate(nav_actions):
-            ttk.Button(
+            button = ttk.Button(
                 nav,
                 text=label,
                 command=command,
                 style="Secondary.TButton",
-            ).grid(row=0, column=column, padx=6)
+            )
+            button.grid(row=0, column=column, padx=6, sticky="ew")
+            nav_buttons.append(button)
 
         card = tk.Frame(
             shell,
@@ -930,7 +953,46 @@ class BaseFrame(tk.Frame):
         )
         card.grid(row=1, column=0, sticky="nsew", pady=(36, 0))
         card.columnconfigure(0, weight=1)
+        self._register_surface_responsive(shell, app_bar, user_area, nav, nav_buttons)
         return shell, card
+
+    def _register_surface_responsive(
+        self,
+        shell: tk.Frame,
+        app_bar: tk.Frame,
+        user_area: tk.Frame,
+        nav: tk.Frame,
+        nav_buttons: List[ttk.Button],
+    ) -> None:
+        state = {"mode": None}
+
+        def handler(width: int, height: int) -> None:
+            breakpoint = "compact" if width < 1360 else "default"
+            if state["mode"] == breakpoint:
+                return
+            state["mode"] = breakpoint
+            if breakpoint == "compact":
+                shell.configure(padx=24, pady=32)
+                app_bar.grid_columnconfigure(0, weight=1)
+                app_bar.grid_columnconfigure(1, weight=0)
+                user_area.grid_configure(row=1, column=0, columnspan=2, sticky="w", pady=(16, 0))
+                nav.grid_configure(row=2, column=0, columnspan=2, sticky="ew", pady=(24, 0))
+                _grid_reset(nav)
+                nav.columnconfigure(0, weight=1)
+                for index, button in enumerate(nav_buttons):
+                    button.grid(row=index, column=0, sticky="ew", pady=4)
+            else:
+                shell.configure(padx=48, pady=48)
+                app_bar.grid_columnconfigure(0, weight=1)
+                app_bar.grid_columnconfigure(1, weight=1)
+                user_area.grid_configure(row=0, column=1, columnspan=1, sticky="e", pady=0)
+                nav.grid_configure(row=1, column=0, columnspan=2, sticky="e", pady=(28, 0))
+                _grid_reset(nav)
+                for index, button in enumerate(nav_buttons):
+                    nav.grid_columnconfigure(index, weight=0)
+                    button.grid(row=0, column=index, padx=6, sticky="ew")
+
+        self.register_responsive(handler)
 
 
 class TrackingApp(tk.Tk):
@@ -1144,6 +1206,7 @@ class LoginFrame(BaseFrame):
         self.register_loading = False
 
         self._build_layout()
+        self._layout_mode: Optional[str] = None
 
     def _build_layout(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -1153,6 +1216,7 @@ class LoginFrame(BaseFrame):
         wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.columnconfigure(0, weight=1)
         wrapper.rowconfigure(0, weight=1)
+        self.wrapper = wrapper
 
         card = tk.Frame(
             wrapper,
@@ -1165,10 +1229,12 @@ class LoginFrame(BaseFrame):
         card.columnconfigure(0, weight=6)
         card.columnconfigure(1, weight=7)
         card.rowconfigure(0, weight=1)
+        self.card = card
 
         hero = tk.Frame(card, bg=HERO_PANEL_BG, padx=48, pady=48)
         hero.grid(row=0, column=0, sticky="nsew")
         hero.columnconfigure(0, weight=1)
+        self.hero = hero
         tk.Label(
             hero,
             text="TrackingApp",
@@ -1211,6 +1277,7 @@ class LoginFrame(BaseFrame):
         form_section = tk.Frame(card, bg=CARD_BG, padx=48, pady=48)
         form_section.grid(row=0, column=1, sticky="nsew")
         form_section.columnconfigure(0, weight=1)
+        self.form_section = form_section
 
         ttk.Label(
             form_section,
@@ -1233,6 +1300,7 @@ class LoginFrame(BaseFrame):
         switcher.grid(row=3, column=0, sticky="ew", pady=(28, 24))
         switcher.columnconfigure(0, weight=1)
         switcher.columnconfigure(1, weight=1)
+        self.switcher = switcher
 
         self.login_tab = ttk.Button(
             switcher,
@@ -1273,6 +1341,7 @@ class LoginFrame(BaseFrame):
         ).grid(row=1, column=0, sticky="w", pady=(16, 0))
 
         self.set_mode(self.mode.get())
+        self.register_responsive(self._update_responsive_layout)
 
     def _build_login_form(self, parent: tk.Misc) -> tk.Frame:
         frame = tk.Frame(parent, bg=CARD_BG)
@@ -1323,6 +1392,33 @@ class LoginFrame(BaseFrame):
 
         self.login_surname_entry = surname_entry
         return frame
+
+    def _update_responsive_layout(self, width: int, height: int) -> None:
+        mode = "stacked" if width < 1180 else "wide"
+        if self._layout_mode == mode:
+            return
+        self._layout_mode = mode
+        if mode == "stacked":
+            self.wrapper.configure(padx=28, pady=28)
+            self.card.grid_columnconfigure(0, weight=1)
+            self.card.grid_columnconfigure(1, weight=0)
+            self.card.grid_rowconfigure(0, weight=0)
+            self.card.grid_rowconfigure(1, weight=1)
+            _grid_reset(self.card)
+            self.hero.configure(padx=32, pady=32)
+            self.hero.grid(row=0, column=0, sticky="nsew")
+            self.form_section.configure(padx=32, pady=32)
+            self.form_section.grid(row=1, column=0, sticky="nsew")
+        else:
+            self.wrapper.configure(padx=72, pady=56)
+            self.card.grid_rowconfigure(0, weight=1)
+            self.card.grid_columnconfigure(0, weight=6)
+            self.card.grid_columnconfigure(1, weight=7)
+            _grid_reset(self.card)
+            self.hero.configure(padx=48, pady=48)
+            self.hero.grid(row=0, column=0, sticky="nsew")
+            self.form_section.configure(padx=48, pady=48)
+            self.form_section.grid(row=0, column=1, sticky="nsew")
 
     def _build_registration_form(self, parent: tk.Misc) -> tk.Frame:
         frame = tk.Frame(parent, bg=CARD_BG)
@@ -2184,11 +2280,13 @@ class UserNameFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
         super().__init__(app)
         self.name_var = tk.StringVar(value=app.state_data.user_name)
+        self._layout_mode: Optional[str] = None
 
         wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=96, pady=96)
         wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.columnconfigure(0, weight=1)
         wrapper.rowconfigure(0, weight=1)
+        self.wrapper = wrapper
 
         card = tk.Frame(
             wrapper,
@@ -2200,10 +2298,12 @@ class UserNameFrame(BaseFrame):
         card.grid(row=0, column=0, sticky="nsew")
         card.columnconfigure(0, weight=1)
         card.rowconfigure(1, weight=1)
+        self.card = card
 
         header = tk.Frame(card, bg=CARD_BG, padx=48, pady=40)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
+        self.header = header
         ttk.Label(header, text="Профіль оператора", style="CardHeading.TLabel").grid(
             row=0, column=0, sticky="w"
         )
@@ -2216,6 +2316,7 @@ class UserNameFrame(BaseFrame):
         content = tk.Frame(card, bg=CARD_BG, padx=48, pady=32)
         content.grid(row=1, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
+        self.content_area = content
 
         badge_row = tk.Frame(content, bg=CARD_BG)
         badge_row.grid(row=0, column=0, sticky="w", pady=(0, 12))
@@ -2237,12 +2338,13 @@ class UserNameFrame(BaseFrame):
         helper = tk.Frame(content, bg=CARD_BG)
         helper.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         helper.columnconfigure(0, weight=1)
-        ttk.Label(
+        self.helper_label = ttk.Label(
             helper,
             text="Порада: використовуйте прізвище та ініціали для прозорої звітності",
             style="CardSubheading.TLabel",
             wraplength=520,
-        ).grid(row=0, column=0, sticky="w")
+        )
+        self.helper_label.grid(row=0, column=0, sticky="w")
 
         ttk.Button(
             content,
@@ -2252,6 +2354,7 @@ class UserNameFrame(BaseFrame):
         ).grid(row=4, column=0, sticky="ew", pady=(32, 0))
 
         entry.focus_set()
+        self.register_responsive(self._update_responsive_layout)
 
     def save(self) -> None:
         name = self.name_var.get().strip()
@@ -2261,6 +2364,22 @@ class UserNameFrame(BaseFrame):
         self.app.state_data.user_name = name
         self.app.state_data.save()
         self.app.show_scanner()
+
+    def _update_responsive_layout(self, width: int, height: int) -> None:
+        mode = "compact" if width < 960 else "default"
+        if self._layout_mode == mode:
+            return
+        self._layout_mode = mode
+        if mode == "compact":
+            self.wrapper.configure(padx=32, pady=32)
+            self.header.configure(padx=24, pady=24)
+            self.content_area.configure(padx=24, pady=24)
+            self.helper_label.configure(wraplength=360)
+        else:
+            self.wrapper.configure(padx=96, pady=96)
+            self.header.configure(padx=48, pady=40)
+            self.content_area.configure(padx=48, pady=32)
+            self.helper_label.configure(wraplength=520)
 
 
 class ScannerFrame(BaseFrame):
@@ -2273,6 +2392,7 @@ class ScannerFrame(BaseFrame):
         self.online_color = WARNING_COLOR
         self.step_progress_var = tk.StringVar(value="Крок 1 з 2")
         self.step_title_var = tk.StringVar(value="Введіть BoxID")
+        self._layout_mode: Optional[Tuple[str, str]] = None
 
         self.role_info = get_role_info(
             app.state_data.user_role, app.state_data.access_level
@@ -2285,11 +2405,13 @@ class ScannerFrame(BaseFrame):
         shell.grid(row=0, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(1, weight=1)
+        self.shell = shell
 
         app_bar = tk.Frame(shell, bg=PRIMARY_BG)
         app_bar.grid(row=0, column=0, sticky="ew")
         app_bar.columnconfigure(0, weight=1)
         app_bar.columnconfigure(1, weight=1)
+        self.app_bar = app_bar
 
         brand = tk.Frame(app_bar, bg=PRIMARY_BG)
         brand.grid(row=0, column=0, sticky="w")
@@ -2310,6 +2432,7 @@ class ScannerFrame(BaseFrame):
 
         user_area = tk.Frame(app_bar, bg=PRIMARY_BG)
         user_area.grid(row=0, column=1, sticky="e")
+        self.user_area = user_area
         tk.Label(
             user_area,
             text=app.state_data.user_name or "Оператор",
@@ -2339,35 +2462,20 @@ class ScannerFrame(BaseFrame):
 
         nav = tk.Frame(app_bar, bg=PRIMARY_BG)
         nav.grid(row=1, column=0, columnspan=2, sticky="e", pady=(28, 0))
-        column = 0
-        ttk.Button(
-            nav,
-            text="Журнал відправлень",
-            command=self.open_history,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
-        column += 1
-        ttk.Button(
-            nav,
-            text="Журнал помилок",
-            command=self.open_errors,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
-        column += 1
+        self.nav = nav
+        self.nav_buttons: List[ttk.Button] = []
+
+        def add_nav_button(label: str, command: Callable[[], None], style: str = "Secondary.TButton") -> None:
+            button = ttk.Button(nav, text=label, command=command, style=style)
+            column = len(self.nav_buttons)
+            button.grid(row=0, column=column, padx=6, sticky="ew")
+            self.nav_buttons.append(button)
+
+        add_nav_button("Журнал відправлень", self.open_history)
+        add_nav_button("Журнал помилок", self.open_errors)
         if self.is_admin:
-            ttk.Button(
-                nav,
-                text="Статистика",
-                command=self.open_statistics,
-                style="Secondary.TButton",
-            ).grid(row=0, column=column, padx=6)
-            column += 1
-        ttk.Button(
-            nav,
-            text="Вийти",
-            command=self.logout,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
+            add_nav_button("Статистика", self.open_statistics)
+        add_nav_button("Вийти", self.logout)
 
         card = tk.Frame(
             shell,
@@ -2379,10 +2487,12 @@ class ScannerFrame(BaseFrame):
         card.grid(row=1, column=0, sticky="nsew", pady=(36, 0))
         card.columnconfigure(0, weight=1)
         card.rowconfigure(1, weight=1)
+        self.card = card
 
         header_section = tk.Frame(card, bg=CARD_BG, padx=48, pady=40)
         header_section.grid(row=0, column=0, sticky="ew")
         header_section.columnconfigure(0, weight=1)
+        self.header_section = header_section
         ttk.Label(
             header_section,
             textvariable=self.step_progress_var,
@@ -2403,6 +2513,7 @@ class ScannerFrame(BaseFrame):
         inputs = tk.Frame(card, bg=CARD_BG, padx=48, pady=0)
         inputs.grid(row=1, column=0, sticky="nsew")
         inputs.columnconfigure(0, weight=1)
+        self.inputs = inputs
 
         self.box_group, self.box_entry = self._create_input_group(
             inputs,
@@ -2425,6 +2536,7 @@ class ScannerFrame(BaseFrame):
         actions.grid(row=2, column=0, sticky="ew", pady=(16, 0))
         actions.columnconfigure(0, weight=1)
         actions.columnconfigure(1, weight=1)
+        self.actions = actions
         self.primary_button = ttk.Button(
             actions,
             text="Перейти до ТТН",
@@ -2432,12 +2544,13 @@ class ScannerFrame(BaseFrame):
             command=self.to_next,
         )
         self.primary_button.grid(row=0, column=0, sticky="ew", padx=(0, 12))
-        ttk.Button(
+        self.reset_button = ttk.Button(
             actions,
             text="Скинути поля",
             style="Outline.TButton",
             command=self.reset_fields,
-        ).grid(row=0, column=1, sticky="ew")
+        )
+        self.reset_button.grid(row=0, column=1, sticky="ew")
 
         status_panel = tk.Frame(
             card,
@@ -2449,7 +2562,8 @@ class ScannerFrame(BaseFrame):
         )
         status_panel.grid(row=2, column=0, sticky="ew", padx=48, pady=(32, 48))
         status_panel.columnconfigure(0, weight=1)
-        tk.Label(
+        self.status_panel = status_panel
+        self.status_label = tk.Label(
             status_panel,
             textvariable=self.status_var,
             font=("Segoe UI", 13),
@@ -2457,12 +2571,14 @@ class ScannerFrame(BaseFrame):
             bg=SURFACE_BG,
             wraplength=960,
             justify="center",
-        ).grid(row=0, column=0, sticky="ew")
+        )
+        self.status_label.grid(row=0, column=0, sticky="ew")
 
         self.stage = "box"
         self.box_entry.focus_set()
         self.check_connectivity()
         OfflineQueue.sync_pending(self.app.state_data.token or "")
+        self.register_responsive(self._update_responsive_layout)
 
     def _create_input_group(
         self,
@@ -2485,6 +2601,57 @@ class ScannerFrame(BaseFrame):
         entry = create_large_entry(frame, textvariable=variable)
         entry.grid(row=1, column=0, sticky="ew", pady=(8, 0), ipady=14)
         return frame, entry
+
+    def _update_responsive_layout(self, width: int, height: int) -> None:
+        nav_mode = "compact" if width < 1340 else "wide"
+        actions_mode = "stack" if width < 980 else "inline"
+        desired = (nav_mode, actions_mode)
+        if self._layout_mode == desired:
+            return
+        self._layout_mode = desired
+
+        if nav_mode == "compact":
+            self.shell.configure(padx=28, pady=32)
+            self.app_bar.grid_columnconfigure(0, weight=1)
+            self.app_bar.grid_columnconfigure(1, weight=0)
+            self.user_area.grid_configure(row=1, column=0, columnspan=2, sticky="w", pady=(16, 0))
+            self.nav.grid_configure(row=2, column=0, columnspan=2, sticky="ew", pady=(24, 0))
+            _grid_reset(self.nav)
+            self.nav.columnconfigure(0, weight=1)
+            for index, button in enumerate(self.nav_buttons):
+                button.grid(row=index, column=0, sticky="ew", pady=4)
+            self.header_section.configure(padx=32, pady=28)
+            self.inputs.configure(padx=32)
+            self.card.grid_configure(pady=(28, 0))
+            self.status_panel.grid_configure(padx=32, pady=(24, 32))
+        else:
+            self.shell.configure(padx=48, pady=48)
+            self.app_bar.grid_columnconfigure(0, weight=1)
+            self.app_bar.grid_columnconfigure(1, weight=1)
+            self.user_area.grid_configure(row=0, column=1, columnspan=1, sticky="e", pady=0)
+            self.nav.grid_configure(row=1, column=0, columnspan=2, sticky="e", pady=(28, 0))
+            _grid_reset(self.nav)
+            for index, button in enumerate(self.nav_buttons):
+                self.nav.grid_columnconfigure(index, weight=0)
+                button.grid(row=0, column=index, padx=6, sticky="ew")
+            self.header_section.configure(padx=48, pady=40)
+            self.inputs.configure(padx=48)
+            self.card.grid_configure(pady=(36, 0))
+            self.status_panel.grid_configure(padx=48, pady=(32, 48))
+
+        wrap_width = max(min(width - 200, 960), 420)
+        self.status_label.configure(wraplength=wrap_width)
+
+        _grid_reset(self.actions)
+        if actions_mode == "stack":
+            self.actions.columnconfigure(0, weight=1)
+            self.primary_button.grid(row=0, column=0, sticky="ew")
+            self.reset_button.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        else:
+            self.actions.columnconfigure(0, weight=1)
+            self.actions.columnconfigure(1, weight=1)
+            self.primary_button.grid(row=0, column=0, sticky="ew", padx=(0, 12))
+            self.reset_button.grid(row=0, column=1, sticky="ew")
 
     def set_online_state(self, online: bool) -> None:
         if online:
@@ -2614,6 +2781,7 @@ class HistoryFrame(BaseFrame):
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
+        self._layout_mode: Optional[str] = None
 
         nav_actions: List[Tuple[str, Callable[[], None]]] = [
             ("⬅ Сканування", self.app.show_scanner),
@@ -2634,6 +2802,7 @@ class HistoryFrame(BaseFrame):
         content.grid(row=0, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
         content.rowconfigure(3, weight=1)
+        self.content_area = content
 
         ttk.Label(
             content,
@@ -2649,9 +2818,12 @@ class HistoryFrame(BaseFrame):
         filters = tk.Frame(content, bg=CARD_BG)
         filters.grid(row=2, column=0, sticky="ew")
         filters.columnconfigure(0, weight=1)
+        self.filters = filters
 
         inputs = tk.Frame(filters, bg=CARD_BG)
         inputs.grid(row=0, column=0, sticky="w")
+        self.filter_inputs = inputs
+        self.filter_entry_frames: List[tk.Frame] = []
 
         self.box_filter = tk.StringVar()
         self.ttn_filter = tk.StringVar()
@@ -2666,16 +2838,26 @@ class HistoryFrame(BaseFrame):
 
         buttons = tk.Frame(filters, bg=CARD_BG)
         buttons.grid(row=0, column=1, sticky="e", padx=(24, 0))
-        ttk.Button(buttons, text="Дата", command=self.pick_date, style="Secondary.TButton").grid(row=0, column=0, padx=4)
-        ttk.Button(buttons, text="Початок", command=lambda: self.pick_time(True), style="Secondary.TButton").grid(row=0, column=1, padx=4)
-        ttk.Button(buttons, text="Кінець", command=lambda: self.pick_time(False), style="Secondary.TButton").grid(row=0, column=2, padx=4)
-        ttk.Button(buttons, text="Скинути", command=self.clear_filters, style="Outline.TButton").grid(row=0, column=3, padx=4)
-        ttk.Button(buttons, text="Оновити", command=self.fetch_history, style="Primary.TButton").grid(row=0, column=4, padx=4)
+        self.filter_button_bar = buttons
+        self.filter_buttons: List[ttk.Button] = []
+
+        def add_filter_button(text: str, command: Callable[[], None], style: str) -> None:
+            button = ttk.Button(buttons, text=text, command=command, style=style)
+            column = len(self.filter_buttons)
+            button.grid(row=0, column=column, padx=4, sticky="ew")
+            self.filter_buttons.append(button)
+
+        add_filter_button("Дата", self.pick_date, "Secondary.TButton")
+        add_filter_button("Початок", lambda: self.pick_time(True), "Secondary.TButton")
+        add_filter_button("Кінець", lambda: self.pick_time(False), "Secondary.TButton")
+        add_filter_button("Скинути", self.clear_filters, "Outline.TButton")
+        add_filter_button("Оновити", self.fetch_history, "Primary.TButton")
         if self.role_info["can_clear_history"]:
-            ttk.Button(buttons, text="Очистити", command=self.clear_history, style="Outline.TButton").grid(row=0, column=5, padx=4)
+            add_filter_button("Очистити", self.clear_history, "Outline.TButton")
 
         status = tk.Frame(filters, bg=CARD_BG)
         status.grid(row=1, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        self.status_frame = status
 
         self.date_display = tk.StringVar(value="Дата: —")
         self.start_display = tk.StringVar(value="Початок: —")
@@ -2714,10 +2896,12 @@ class HistoryFrame(BaseFrame):
         self.filtered: List[Dict[str, Any]] = []
 
         self.fetch_history()
+        self.register_responsive(self._update_responsive_layout)
 
     def _add_filter_entry(self, parent: tk.Widget, label: str, variable: tk.StringVar, column: int) -> None:
         frame = tk.Frame(parent, bg=CARD_BG)
         frame.grid(row=0, column=column, padx=6)
+        self.filter_entry_frames.append(frame)
         tk.Label(
             frame,
             text=label,
@@ -2878,6 +3062,38 @@ class HistoryFrame(BaseFrame):
     def logout(self) -> None:
         self.perform_logout()
 
+    def _update_responsive_layout(self, width: int, height: int) -> None:
+        mode = "compact" if width < 1400 else "default"
+        if self._layout_mode == mode:
+            return
+        self._layout_mode = mode
+
+        if mode == "compact":
+            self.content_area.configure(padx=24, pady=24)
+            self.filters.grid_configure(pady=(16, 0))
+            _grid_reset(self.filter_inputs)
+            for index, frame in enumerate(self.filter_entry_frames):
+                frame.grid(row=index, column=0, sticky="ew", pady=(0, 12))
+                frame.columnconfigure(0, weight=1)
+            _grid_reset(self.filter_button_bar)
+            self.filter_button_bar.columnconfigure(0, weight=1)
+            for index, button in enumerate(self.filter_buttons):
+                button.grid(row=index, column=0, sticky="ew", pady=4)
+            self.filter_inputs.grid(row=0, column=0, sticky="ew")
+            self.filter_button_bar.grid(row=1, column=0, sticky="ew", pady=(16, 0))
+            self.status_frame.grid_configure(row=2, column=0, columnspan=1, sticky="ew", pady=(16, 0))
+        else:
+            self.content_area.configure(padx=36, pady=32)
+            self.filters.grid_configure(pady=(0, 0))
+            _grid_reset(self.filter_inputs)
+            for index, frame in enumerate(self.filter_entry_frames):
+                frame.grid(row=0, column=index, padx=6, sticky="w")
+            _grid_reset(self.filter_button_bar)
+            for index, button in enumerate(self.filter_buttons):
+                button.grid(row=0, column=index, padx=4, sticky="ew")
+            self.filter_button_bar.grid(row=0, column=1, sticky="e", padx=(24, 0), pady=0)
+            self.status_frame.grid_configure(row=1, column=0, columnspan=2, sticky="w", pady=(12, 0))
+
 
 class StatisticsFrame(BaseFrame):
     def __init__(self, app: TrackingApp) -> None:
@@ -2890,6 +3106,7 @@ class StatisticsFrame(BaseFrame):
             messagebox.showerror("Обмежено", "Статистика доступна лише адміністратору.")
             self.after(0, self.app.show_scanner)
             return
+        self._layout_mode: Optional[Tuple[str, str, str]] = None
 
         self.history_records: List[Dict[str, Any]] = []
         self.error_records: List[Dict[str, Any]] = []
@@ -2933,6 +3150,7 @@ class StatisticsFrame(BaseFrame):
         content.grid(row=0, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
         content.rowconfigure(6, weight=1)
+        self.content_area = content
 
         ttk.Label(content, text="Адміністративна статистика", style="CardHeading.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
@@ -2944,6 +3162,7 @@ class StatisticsFrame(BaseFrame):
         filters = tk.Frame(content, bg=CARD_BG)
         filters.grid(row=2, column=0, sticky="ew")
         filters.columnconfigure(0, weight=1)
+        self.filters = filters
 
         ttk.Label(filters, textvariable=self.period_var, style="CardSubheading.TLabel").grid(
             row=0, column=0, sticky="w"
@@ -2951,64 +3170,66 @@ class StatisticsFrame(BaseFrame):
 
         buttons = tk.Frame(filters, bg=CARD_BG)
         buttons.grid(row=0, column=1, sticky="e")
-        ttk.Button(buttons, text="Дата початку", command=self.pick_start_date, style="Secondary.TButton").grid(
-            row=0, column=0, padx=4
-        )
-        ttk.Button(buttons, text="Час початку", command=self.pick_start_time, style="Secondary.TButton").grid(
-            row=0, column=1, padx=4
-        )
-        ttk.Button(buttons, text="Дата завершення", command=self.pick_end_date, style="Secondary.TButton").grid(
-            row=0, column=2, padx=4
-        )
-        ttk.Button(buttons, text="Час завершення", command=self.pick_end_time, style="Secondary.TButton").grid(
-            row=0, column=3, padx=4
-        )
-        ttk.Button(buttons, text="Скинути", command=self.reset_period, style="Outline.TButton").grid(
-            row=0, column=4, padx=4
-        )
-        ttk.Button(buttons, text="Оновити дані", command=self.fetch_data, style="Secondary.TButton").grid(
-            row=0, column=5, padx=4
-        )
-        ttk.Button(buttons, text="Зберегти звіт", command=self.export_statistics, style="Primary.TButton").grid(
-            row=0, column=6, padx=4
-        )
+        self.filter_button_bar = buttons
+        self.filter_buttons: List[ttk.Button] = []
+
+        def add_stat_button(text: str, command: Callable[[], None], style: str) -> None:
+            button = ttk.Button(buttons, text=text, command=command, style=style)
+            column = len(self.filter_buttons)
+            button.grid(row=0, column=column, padx=4)
+            self.filter_buttons.append(button)
+
+        add_stat_button("Дата початку", self.pick_start_date, "Secondary.TButton")
+        add_stat_button("Час початку", self.pick_start_time, "Secondary.TButton")
+        add_stat_button("Дата завершення", self.pick_end_date, "Secondary.TButton")
+        add_stat_button("Час завершення", self.pick_end_time, "Secondary.TButton")
+        add_stat_button("Скинути", self.reset_period, "Outline.TButton")
+        add_stat_button("Оновити дані", self.fetch_data, "Secondary.TButton")
+        add_stat_button("Зберегти звіт", self.export_statistics, "Primary.TButton")
 
         status = tk.Frame(content, bg=CARD_BG)
         status.grid(row=3, column=0, sticky="w", pady=(12, 0))
+        self.status_frame = status
         ttk.Label(status, textvariable=self.status_var, style="CardSubheading.TLabel").grid(
             row=0, column=0, sticky="w"
         )
 
         metrics = tk.Frame(content, bg=CARD_BG)
         metrics.grid(row=4, column=0, sticky="ew", pady=(24, 0))
-        for col in range(4):
-            metrics.columnconfigure(col, weight=1)
-
-        self._create_metric(metrics, 0, "Сканувань", self.total_scans_var)
-        self._create_metric(metrics, 1, "Операторів", self.unique_users_var)
-        self._create_metric(metrics, 2, "Помилок", self.total_errors_var)
-        self._create_metric(metrics, 3, "Користувачів з помилками", self.error_users_var)
+        self.metrics_frame = metrics
+        self.metric_cards: List[tk.Frame] = []
+        self.metric_cards.append(self._create_metric(metrics, 0, "Сканувань", self.total_scans_var))
+        self.metric_cards.append(self._create_metric(metrics, 1, "Операторів", self.unique_users_var))
+        self.metric_cards.append(self._create_metric(metrics, 2, "Помилок", self.total_errors_var))
+        self.metric_cards.append(
+            self._create_metric(metrics, 3, "Користувачів з помилками", self.error_users_var)
+        )
 
         insights = tk.Frame(content, bg=CARD_BG)
         insights.grid(row=5, column=0, sticky="ew", pady=(28, 0))
         insights.columnconfigure(0, weight=1)
         insights.columnconfigure(1, weight=1)
-
-        self._create_insight(
-            insights,
-            column=0,
-            title="Найактивніший оператор",
-            name_var=self.top_operator_var,
-            count_var=self.top_operator_count_var,
-            suffix="сканувань",
+        self.insights_frame = insights
+        self.insight_cards: List[tk.Frame] = []
+        self.insight_cards.append(
+            self._create_insight(
+                insights,
+                column=0,
+                title="Найактивніший оператор",
+                name_var=self.top_operator_var,
+                count_var=self.top_operator_count_var,
+                suffix="сканувань",
+            )
         )
-        self._create_insight(
-            insights,
-            column=1,
-            title="Найбільше помилок",
-            name_var=self.top_error_operator_var,
-            count_var=self.top_error_count_var,
-            suffix="помилок",
+        self.insight_cards.append(
+            self._create_insight(
+                insights,
+                column=1,
+                title="Найбільше помилок",
+                name_var=self.top_error_operator_var,
+                count_var=self.top_error_count_var,
+                suffix="помилок",
+            )
         )
 
         tables = tk.Frame(content, bg=CARD_BG)
@@ -3017,6 +3238,7 @@ class StatisticsFrame(BaseFrame):
         tables.columnconfigure(1, weight=1)
         tables.columnconfigure(2, weight=1)
         tables.rowconfigure(0, weight=1)
+        self.tables_frame = tables
 
         scans_section = tk.Frame(
             tables,
@@ -3108,11 +3330,97 @@ class StatisticsFrame(BaseFrame):
         timeline_scroll = ttk.Scrollbar(timeline_section, orient="vertical", command=self.timeline_tree.yview)
         timeline_scroll.grid(row=1, column=1, sticky="ns", pady=(12, 0))
         self.timeline_tree.configure(yscrollcommand=timeline_scroll.set)
+        self.table_sections = [scans_section, errors_section, timeline_section]
 
         self._update_period_label()
         self.fetch_data()
+        self.register_responsive(self._update_responsive_layout)
 
-    def _create_metric(self, parent: tk.Frame, column: int, title: str, variable: tk.StringVar) -> None:
+    def _update_responsive_layout(self, width: int, height: int) -> None:
+        metrics_mode = "single" if width < 1100 else ("double" if width < 1500 else "grid")
+        insights_mode = "single" if width < 1400 else "double"
+        tables_mode = "stack" if width < 1500 else "row"
+        key = (metrics_mode, insights_mode, tables_mode)
+        if self._layout_mode == key:
+            return
+        self._layout_mode = key
+
+        if width < 1100:
+            self.content_area.configure(padx=24, pady=24)
+        elif width < 1500:
+            self.content_area.configure(padx=30, pady=28)
+        else:
+            self.content_area.configure(padx=36, pady=32)
+
+        if width < 1400:
+            self.filters.grid_configure(pady=(16, 0))
+            _grid_reset(self.filter_button_bar)
+            self.filter_button_bar.columnconfigure(0, weight=1)
+            for index, button in enumerate(self.filter_buttons):
+                button.grid(row=index, column=0, sticky="ew", pady=4)
+            self.filter_button_bar.grid(row=1, column=0, sticky="ew", pady=(16, 0))
+        else:
+            self.filters.grid_configure(pady=(0, 0))
+            _grid_reset(self.filter_button_bar)
+            for index, button in enumerate(self.filter_buttons):
+                button.grid(row=0, column=index, padx=4)
+            self.filter_button_bar.grid(row=0, column=1, sticky="e", pady=0)
+
+        for col in range(4):
+            self.metrics_frame.grid_columnconfigure(col, weight=0)
+        _grid_reset(self.metrics_frame)
+        if metrics_mode == "grid":
+            for index, card in enumerate(self.metric_cards):
+                self.metrics_frame.grid_columnconfigure(index, weight=1)
+                card.grid(row=0, column=index, sticky="nsew", padx=8)
+        elif metrics_mode == "double":
+            for col in range(2):
+                self.metrics_frame.grid_columnconfigure(col, weight=1)
+            for index, card in enumerate(self.metric_cards):
+                row = index // 2
+                column = index % 2
+                pady = (12, 0) if row > 0 else (0, 0)
+                card.grid(row=row, column=column, sticky="nsew", padx=8, pady=pady)
+        else:
+            self.metrics_frame.grid_columnconfigure(0, weight=1)
+            for index, card in enumerate(self.metric_cards):
+                card.grid(row=index, column=0, sticky="ew", padx=0, pady=(0, 12))
+
+        for col in range(2):
+            self.insights_frame.grid_columnconfigure(col, weight=0)
+        _grid_reset(self.insights_frame)
+        if insights_mode == "double":
+            for index, card in enumerate(self.insight_cards):
+                self.insights_frame.grid_columnconfigure(index, weight=1)
+                pad = (0, 16) if index == 0 else (16, 0)
+                card.grid(row=0, column=index, sticky="nsew", padx=pad)
+        else:
+            self.insights_frame.grid_columnconfigure(0, weight=1)
+            for index, card in enumerate(self.insight_cards):
+                pady = (0, 16) if index == 0 else (0, 0)
+                card.grid(row=index, column=0, sticky="ew", padx=0, pady=pady)
+
+        for col in range(3):
+            self.tables_frame.grid_columnconfigure(col, weight=0)
+        _grid_reset(self.tables_frame)
+        if tables_mode == "row":
+            for index, section in enumerate(self.table_sections):
+                self.tables_frame.grid_columnconfigure(index, weight=1)
+                if index == 0:
+                    pad = (0, 12)
+                elif index == len(self.table_sections) - 1:
+                    pad = (12, 0)
+                else:
+                    pad = (12, 12)
+                section.grid(row=0, column=index, sticky="nsew", padx=pad)
+        else:
+            self.tables_frame.grid_columnconfigure(0, weight=1)
+            for index, section in enumerate(self.table_sections):
+                pady = (0, 16) if index < len(self.table_sections) - 1 else (0, 0)
+                section.grid(row=index, column=0, sticky="nsew", pady=pady)
+    def _create_metric(
+        self, parent: tk.Frame, column: int, title: str, variable: tk.StringVar
+    ) -> tk.Frame:
         container = tk.Frame(
             parent,
             bg="#e2e8f0",
@@ -3121,7 +3429,6 @@ class StatisticsFrame(BaseFrame):
             highlightbackground=NEUTRAL_BORDER,
             highlightthickness=1,
         )
-        container.grid(row=0, column=column, sticky="nsew", padx=8)
         container.columnconfigure(0, weight=1)
         tk.Label(
             container,
@@ -3137,6 +3444,7 @@ class StatisticsFrame(BaseFrame):
             fg=TEXT_PRIMARY,
             bg="#e2e8f0",
         ).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        return container
 
     def _create_insight(
         self,
@@ -3147,7 +3455,7 @@ class StatisticsFrame(BaseFrame):
         name_var: tk.StringVar,
         count_var: tk.StringVar,
         suffix: str,
-    ) -> None:
+    ) -> tk.Frame:
         container = tk.Frame(
             parent,
             bg="#f1f5f9",
@@ -3156,7 +3464,6 @@ class StatisticsFrame(BaseFrame):
             highlightbackground=NEUTRAL_BORDER,
             highlightthickness=1,
         )
-        container.grid(row=0, column=column, sticky="nsew", padx=(0, 16) if column == 0 else (16, 0))
         container.columnconfigure(0, weight=1)
 
         tk.Label(
@@ -3180,6 +3487,14 @@ class StatisticsFrame(BaseFrame):
             fg=TEXT_SECONDARY,
             bg="#f1f5f9",
         ).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        tk.Label(
+            container,
+            text=suffix,
+            font=("Segoe UI", 11),
+            fg=TEXT_SECONDARY,
+            bg="#f1f5f9",
+        ).grid(row=3, column=0, sticky="w")
+        return container
         
 
     def pick_start_date(self) -> None:
@@ -3532,6 +3847,7 @@ class ErrorsFrame(BaseFrame):
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
+        self._layout_mode: Optional[str] = None
 
         nav_actions: List[Tuple[str, Callable[[], None]]] = [
             ("⬅ Сканування", self.app.show_scanner),
@@ -3552,6 +3868,7 @@ class ErrorsFrame(BaseFrame):
         content.grid(row=0, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
         content.rowconfigure(3, weight=1)
+        self.content_area = content
 
         ttk.Label(content, text="Виявлені помилки", style="CardHeading.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
@@ -3563,11 +3880,21 @@ class ErrorsFrame(BaseFrame):
         toolbar = tk.Frame(content, bg=CARD_BG)
         toolbar.grid(row=2, column=0, sticky="ew")
         toolbar.columnconfigure(0, weight=1)
+        self.toolbar = toolbar
         button_bar = tk.Frame(toolbar, bg=CARD_BG)
         button_bar.grid(row=0, column=1, sticky="e")
-        ttk.Button(button_bar, text="Оновити", command=self.fetch_errors, style="Primary.TButton").grid(row=0, column=0, padx=4)
+        self.button_bar = button_bar
+        self.button_widgets: List[ttk.Button] = []
+
+        def add_toolbar_button(text: str, command: Callable[[], None], style: str) -> None:
+            button = ttk.Button(button_bar, text=text, command=command, style=style)
+            column = len(self.button_widgets)
+            button.grid(row=0, column=column, padx=4)
+            self.button_widgets.append(button)
+
+        add_toolbar_button("Оновити", self.fetch_errors, "Primary.TButton")
         if self.role_info["can_clear_errors"]:
-            ttk.Button(button_bar, text="Очистити всі", command=self.clear_errors, style="Outline.TButton").grid(row=0, column=1, padx=4)
+            add_toolbar_button("Очистити всі", self.clear_errors, "Outline.TButton")
 
         tree_container = tk.Frame(content, bg=CARD_BG)
         tree_container.grid(row=3, column=0, sticky="nsew", pady=(24, 0))
@@ -3600,6 +3927,7 @@ class ErrorsFrame(BaseFrame):
         self.records: List[Dict[str, Any]] = []
 
         self.fetch_errors()
+        self.register_responsive(self._update_responsive_layout)
 
     def fetch_errors(self) -> None:
         token = self.app.state_data.token
@@ -3720,6 +4048,27 @@ class ErrorsFrame(BaseFrame):
 
     def logout(self) -> None:
         self.perform_logout()
+
+    def _update_responsive_layout(self, width: int, height: int) -> None:
+        mode = "compact" if width < 1280 else "default"
+        if self._layout_mode == mode:
+            return
+        self._layout_mode = mode
+
+        if mode == "compact":
+            self.content_area.configure(padx=24, pady=24)
+            self.toolbar.grid_configure(pady=(0, 0))
+            _grid_reset(self.button_bar)
+            self.button_bar.columnconfigure(0, weight=1)
+            for index, button in enumerate(self.button_widgets):
+                button.grid(row=index, column=0, sticky="ew", pady=4)
+            self.button_bar.grid(row=1, column=0, sticky="ew", pady=(16, 0))
+        else:
+            self.content_area.configure(padx=36, pady=32)
+            _grid_reset(self.button_bar)
+            for index, button in enumerate(self.button_widgets):
+                button.grid(row=0, column=index, padx=4)
+            self.button_bar.grid(row=0, column=1, sticky="e", pady=0)
 
 
 def main() -> None:
