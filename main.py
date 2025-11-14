@@ -27,15 +27,23 @@ API_BASE = "https://tracking-api-b4jb.onrender.com"
 STATE_PATH = Path(__file__).with_name("tracking_app_state.json")
 QUEUE_PATH = Path(__file__).with_name("offline_queue.json")
 
-# Design constants for corporate-style UI
-PRIMARY_BG = "#0f172a"
-SECONDARY_BG = "#111c3a"
-CARD_BG = "#ffffff"
-ACCENT_COLOR = "#1d4ed8"
-ACCENT_HOVER = "#1e40af"
+# Design constants for a refreshed, modern UI system
+PRIMARY_BG = "#020817"
+SECONDARY_BG = "#0b1220"
+CARD_BG = "#f8fafc"
+SURFACE_BG = "#e2e8f0"
+ACCENT_COLOR = "#2563eb"
+ACCENT_HOVER = "#1d4ed8"
 TEXT_PRIMARY = "#0f172a"
-TEXT_SECONDARY = "#475569"
-NEUTRAL_BORDER = "#cbd5f5"
+TEXT_SECONDARY = "#475467"
+NEUTRAL_BORDER = "#d0d5dd"
+SHADOW_COLOR = "#0f172a"
+HERO_PANEL_BG = "#111c3a"
+PILL_BG = "#dbeafe"
+PILL_TEXT = "#1d4ed8"
+ERROR_COLOR = "#d92d20"
+SUCCESS_COLOR = "#039855"
+WARNING_COLOR = "#f79009"
 
 def maximize_window(window: tk.Misc) -> None:
     """Expand a Tk window to occupy the entire screen."""
@@ -467,8 +475,8 @@ def create_large_entry(
         textvariable=textvariable,
         show=show,
         justify=justify,
-        font=("Segoe UI", 50, "bold"),
-        bg=CARD_BG,
+        font=("Segoe UI", 32, "bold"),
+        bg=SURFACE_BG,
         fg=TEXT_PRIMARY,
         insertbackground=TEXT_PRIMARY,
         relief="flat",
@@ -494,8 +502,8 @@ def create_form_entry(
         textvariable=textvariable,
         show=show,
         justify=justify,
-        font=("Segoe UI", 32, "bold"),
-        bg=CARD_BG,
+        font=("Segoe UI", 18, "bold"),
+        bg=SURFACE_BG,
         fg=TEXT_PRIMARY,
         insertbackground=TEXT_PRIMARY,
         relief="flat",
@@ -848,6 +856,82 @@ class BaseFrame(tk.Frame):
         self.app.state_data.save()
         self.app.show_login()
 
+    def build_surface(
+        self,
+        *,
+        title: str,
+        subtitle: str,
+        nav_actions: List[Tuple[str, Callable[[], None]]],
+    ) -> tuple[tk.Frame, tk.Frame]:
+        shell = tk.Frame(self, bg=PRIMARY_BG, padx=48, pady=48)
+        shell.grid(row=0, column=0, sticky="nsew")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(1, weight=1)
+
+        app_bar = tk.Frame(shell, bg=PRIMARY_BG)
+        app_bar.grid(row=0, column=0, sticky="ew")
+        app_bar.columnconfigure(0, weight=1)
+        app_bar.columnconfigure(1, weight=1)
+
+        brand = tk.Frame(app_bar, bg=PRIMARY_BG)
+        brand.grid(row=0, column=0, sticky="w")
+        tk.Label(
+            brand,
+            text=title,
+            font=("Segoe UI", 28, "bold"),
+            fg="#f8fafc",
+            bg=PRIMARY_BG,
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            brand,
+            text=subtitle,
+            font=("Segoe UI", 13),
+            fg="#94a3b8",
+            bg=PRIMARY_BG,
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+
+        user_area = tk.Frame(app_bar, bg=PRIMARY_BG)
+        user_area.grid(row=0, column=1, sticky="e")
+        tk.Label(
+            user_area,
+            text=self.app.state_data.user_name or "Оператор",
+            font=("Segoe UI", 14, "bold"),
+            fg="#e2e8f0",
+            bg=PRIMARY_BG,
+        ).grid(row=0, column=0, sticky="e")
+        role_label = self.app.state_data.user_role or "viewer"
+        role_info = get_role_info(role_label, self.app.state_data.access_level)
+        tk.Label(
+            user_area,
+            text=role_info["label"],
+            font=("Segoe UI", 11, "bold"),
+            fg=PILL_TEXT,
+            bg=PILL_BG,
+            padx=14,
+            pady=6,
+        ).grid(row=0, column=1, sticky="e", padx=(12, 0))
+
+        nav = tk.Frame(app_bar, bg=PRIMARY_BG)
+        nav.grid(row=1, column=0, columnspan=2, sticky="e", pady=(28, 0))
+        for column, (label, command) in enumerate(nav_actions):
+            ttk.Button(
+                nav,
+                text=label,
+                command=command,
+                style="Secondary.TButton",
+            ).grid(row=0, column=column, padx=6)
+
+        card = tk.Frame(
+            shell,
+            bg=CARD_BG,
+            highlightbackground=NEUTRAL_BORDER,
+            highlightthickness=1,
+            bd=0,
+        )
+        card.grid(row=1, column=0, sticky="nsew", pady=(36, 0))
+        card.columnconfigure(0, weight=1)
+        return shell, card
+
 
 class TrackingApp(tk.Tk):
     def __init__(self) -> None:
@@ -886,6 +970,12 @@ class TrackingApp(tk.Tk):
             foreground="#e2e8f0",
         )
         self.style.configure(
+            "Muted.TLabel",
+            font=("Segoe UI", 11),
+            background=PRIMARY_BG,
+            foreground="#94a3b8",
+        )
+        self.style.configure(
             "Card.TLabel",
             font=("Segoe UI", 12),
             background=CARD_BG,
@@ -893,20 +983,27 @@ class TrackingApp(tk.Tk):
         )
         self.style.configure(
             "CardHeading.TLabel",
-            font=("Segoe UI", 28, "bold"),
+            font=("Segoe UI", 26, "bold"),
             background=CARD_BG,
             foreground=TEXT_PRIMARY,
         )
         self.style.configure(
             "CardSubheading.TLabel",
-            font=("Segoe UI", 14),
+            font=("Segoe UI", 13),
             background=CARD_BG,
             foreground=TEXT_SECONDARY,
         )
         self.style.configure(
+            "CardPill.TLabel",
+            font=("Segoe UI", 11, "bold"),
+            background=PILL_BG,
+            foreground=PILL_TEXT,
+            padding=(12, 6),
+        )
+        self.style.configure(
             "Primary.TButton",
-            font=("Segoe UI", 14, "bold"),
-            padding=(24, 12),
+            font=("Segoe UI", 13, "bold"),
+            padding=(20, 12),
             background=ACCENT_COLOR,
             foreground="white",
             borderwidth=0,
@@ -919,27 +1016,65 @@ class TrackingApp(tk.Tk):
         self.style.configure(
             "Secondary.TButton",
             font=("Segoe UI", 12, "bold"),
-            padding=(18, 10),
-            background="#1f2937",
-            foreground="#f8fafc",
+            padding=(16, 10),
+            background=SECONDARY_BG,
+            foreground="#e2e8f0",
             borderwidth=0,
         )
         self.style.map(
             "Secondary.TButton",
-            background=[("active", "#0f172a")],
+            background=[("active", "#1d2939")],
             foreground=[("disabled", "#94a3b8")],
         )
         self.style.configure(
+            "Outline.TButton",
+            font=("Segoe UI", 12, "bold"),
+            padding=(16, 10),
+            background=CARD_BG,
+            foreground=TEXT_PRIMARY,
+            borderwidth=1,
+            relief="solid",
+        )
+        self.style.map(
+            "Outline.TButton",
+            background=[("active", SURFACE_BG)],
+            foreground=[("disabled", "#94a3b8")],
+        )
+        self.style.configure(
+            "Segmented.TButton",
+            font=("Segoe UI", 12, "bold"),
+            padding=(16, 8),
+            background=SURFACE_BG,
+            foreground=TEXT_SECONDARY,
+            borderwidth=0,
+        )
+        self.style.map(
+            "Segmented.TButton",
+            background=[("active", "#cbd5f5")],
+        )
+        self.style.configure(
+            "SegmentedActive.TButton",
+            font=("Segoe UI", 12, "bold"),
+            padding=(16, 8),
+            background=ACCENT_COLOR,
+            foreground="white",
+            borderwidth=0,
+        )
+        self.style.map(
+            "SegmentedActive.TButton",
+            background=[("active", ACCENT_HOVER)],
+        )
+        self.style.configure(
             "TEntry",
-            font=("Segoe UI", 16),
+            font=("Segoe UI", 14),
             padding=10,
         )
         self.style.configure(
             "Treeview",
             font=("Segoe UI", 12),
-            rowheight=36,
-            fieldbackground="#f8fafc",
-            background="#f8fafc",
+            rowheight=40,
+            fieldbackground=CARD_BG,
+            background=CARD_BG,
             foreground=TEXT_PRIMARY,
             borderwidth=0,
         )
@@ -947,13 +1082,13 @@ class TrackingApp(tk.Tk):
             "Treeview.Heading",
             font=("Segoe UI", 12, "bold"),
             padding=12,
-            background=ACCENT_COLOR,
-            foreground="white",
+            background=SECONDARY_BG,
+            foreground="#e2e8f0",
             relief="flat",
         )
         self.style.map(
             "Treeview.Heading",
-            background=[("active", ACCENT_HOVER)],
+            background=[("active", ACCENT_COLOR)],
         )
 
     def switch_to(self, frame_cls: type[tk.Frame]) -> None:
@@ -1011,101 +1146,131 @@ class LoginFrame(BaseFrame):
         self._build_layout()
 
     def _build_layout(self) -> None:
-        # Use a full-screen card that scales with the root window
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
+        wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=72, pady=56)
+        wrapper.grid(row=0, column=0, sticky="nsew")
+        wrapper.columnconfigure(0, weight=1)
+        wrapper.rowconfigure(0, weight=1)
+
         card = tk.Frame(
-            self,
+            wrapper,
             bg=CARD_BG,
             highlightbackground=NEUTRAL_BORDER,
-            highlightthickness=2,
+            highlightthickness=1,
             bd=0,
         )
         card.grid(row=0, column=0, sticky="nsew")
-        card.columnconfigure(0, weight=1)
-        card.rowconfigure(1, weight=1)
+        card.columnconfigure(0, weight=6)
+        card.columnconfigure(1, weight=7)
+        card.rowconfigure(0, weight=1)
 
-        header = tk.Frame(card, bg=ACCENT_COLOR, pady=20, padx=40)
-        header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
+        hero = tk.Frame(card, bg=HERO_PANEL_BG, padx=48, pady=48)
+        hero.grid(row=0, column=0, sticky="nsew")
+        hero.columnconfigure(0, weight=1)
         tk.Label(
-            header,
+            hero,
             text="TrackingApp",
-            font=("Segoe UI", 36, "bold"),
+            font=("Segoe UI", 38, "bold"),
             fg="white",
-            bg=ACCENT_COLOR,
+            bg=HERO_PANEL_BG,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
-            header,
-            text="Корпоративна панель управління",
-            font=("Segoe UI", 14),
-            fg="#dbeafe",
-            bg=ACCENT_COLOR,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+            hero,
+            text="Професійний контроль логістики",
+            font=("Segoe UI", 16),
+            fg="#c7d2fe",
+            bg=HERO_PANEL_BG,
+        ).grid(row=1, column=0, sticky="w", pady=(8, 28))
 
-        content = tk.Frame(card, bg=CARD_BG, padx=80, pady=60)
-        content.grid(row=1, column=0, sticky="nsew")
-        content.columnconfigure(0, weight=1)
-        content.rowconfigure(3, weight=1)
+        features = [
+            ("🔐", "Захищена авторизація користувачів"),
+            ("⚡", "Миттєва реєстрація BoxID та ТТН"),
+            ("📊", "Аналітика для керування командами"),
+        ]
+        for idx, (icon, text) in enumerate(features, start=2):
+            tk.Label(
+                hero,
+                text=f"{icon}  {text}",
+                font=("Segoe UI", 14, "bold"),
+                fg="#e0e7ff",
+                bg=HERO_PANEL_BG,
+            ).grid(row=idx, column=0, sticky="w", pady=(0, 12))
+
+        tk.Label(
+            hero,
+            text="Від Windows до мобільних застосунків — одна екосистема управління",
+            font=("Segoe UI", 11),
+            fg="#b4c6ff",
+            bg=HERO_PANEL_BG,
+            wraplength=360,
+            justify="left",
+        ).grid(row=len(features) + 2, column=0, sticky="w", pady=(28, 0))
+
+        form_section = tk.Frame(card, bg=CARD_BG, padx=48, pady=48)
+        form_section.grid(row=0, column=1, sticky="nsew")
+        form_section.columnconfigure(0, weight=1)
 
         ttk.Label(
-            content,
-            text="Ласкаво просимо!",
+            form_section,
+            text="Windows-версія",
+            style="CardPill.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            form_section,
+            text="Увійдіть у робочу зону",
             style="CardHeading.TLabel",
-            anchor="center",
-        ).grid(row=0, column=0, sticky="ew")
+        ).grid(row=1, column=0, sticky="w", pady=(16, 4))
         ttk.Label(
-            content,
-            text="Увійдіть або надішліть заявку на реєстрацію",
+            form_section,
+            text="Обирайте режим роботи: авторизація або заявка на доступ",
             style="CardSubheading.TLabel",
-            anchor="center",
-        ).grid(row=1, column=0, sticky="ew", pady=(4, 30))
+            wraplength=420,
+        ).grid(row=2, column=0, sticky="w")
 
-        switcher = tk.Frame(content, bg=CARD_BG)
-        switcher.grid(row=2, column=0, sticky="ew", pady=(0, 24))
+        switcher = tk.Frame(form_section, bg=CARD_BG)
+        switcher.grid(row=3, column=0, sticky="ew", pady=(28, 24))
         switcher.columnconfigure(0, weight=1)
         switcher.columnconfigure(1, weight=1)
 
         self.login_tab = ttk.Button(
             switcher,
             text="Вхід",
-            style="Secondary.TButton",
+            style="SegmentedActive.TButton",
             command=lambda: self.set_mode("login"),
         )
-        self.login_tab.grid(row=0, column=0, padx=6, sticky="ew")
+        self.login_tab.grid(row=0, column=0, padx=(0, 6), sticky="ew")
 
         self.register_tab = ttk.Button(
             switcher,
             text="Реєстрація",
-            style="Secondary.TButton",
+            style="Segmented.TButton",
             command=lambda: self.set_mode("register"),
         )
-        self.register_tab.grid(row=0, column=1, padx=6, sticky="ew")
+        self.register_tab.grid(row=0, column=1, padx=(6, 0), sticky="ew")
 
-        self.forms_container = tk.Frame(content, bg=CARD_BG)
-        self.forms_container.grid(row=3, column=0, sticky="nsew")
+        self.forms_container = tk.Frame(form_section, bg=CARD_BG)
+        self.forms_container.grid(row=4, column=0, sticky="nsew")
         self.forms_container.columnconfigure(0, weight=1)
 
         self.login_form = self._build_login_form(self.forms_container)
         self.register_form = self._build_registration_form(self.forms_container)
 
-        footer = tk.Frame(card, bg=CARD_BG, pady=20)
-        footer.grid(row=2, column=0, sticky="ew")
+        footer = tk.Frame(form_section, bg=CARD_BG)
+        footer.grid(row=5, column=0, sticky="ew", pady=(32, 0))
         footer.columnconfigure(0, weight=1)
         ttk.Button(
             footer,
             text="Панель адміністратора",
-            style="Secondary.TButton",
+            style="Outline.TButton",
             command=self.open_admin_panel,
-        ).grid(row=0, column=0, pady=(0, 12), padx=12, sticky="e")
-        tk.Label(
+        ).grid(row=0, column=0, sticky="ew")
+        ttk.Label(
             footer,
-            text="TrackingApp by DimonVR",
-            font=("Segoe UI", 12),
-            fg=TEXT_SECONDARY,
-            bg=CARD_BG,
-        ).grid(row=1, column=0, sticky="e", padx=12)
+            text="TrackingApp • Від DimonVR",
+            style="CardSubheading.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(16, 0))
 
         self.set_mode(self.mode.get())
 
@@ -1116,34 +1281,34 @@ class LoginFrame(BaseFrame):
         tk.Label(
             frame,
             text="Прізвище",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
         surname_entry = create_form_entry(
             frame, textvariable=self.login_surname_var, justify="left"
         )
-        surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 20), ipady=10)
+        surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 16), ipady=12)
         surname_entry.bind("<Return>", lambda _: self.login())
 
         tk.Label(
             frame,
             text="Пароль",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=2, column=0, sticky="w")
         password_entry = create_form_entry(
             frame, textvariable=self.login_password_var, show="*", justify="left"
         )
-        password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 8), ipady=10)
+        password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 8), ipady=12)
         password_entry.bind("<Return>", lambda _: self.login())
 
         self.login_error_label = tk.Label(
             frame,
             textvariable=self.login_error_var,
             font=("Segoe UI", 12),
-            fg="#d32f2f",
+            fg=ERROR_COLOR,
             bg=CARD_BG,
         )
         self.login_error_label.grid(row=4, column=0, sticky="ew", pady=(4, 0))
@@ -1166,47 +1331,47 @@ class LoginFrame(BaseFrame):
         tk.Label(
             frame,
             text="Прізвище",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
         surname_entry = create_form_entry(
             frame, textvariable=self.register_surname_var, justify="left"
         )
-        surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 16), ipady=10)
+        surname_entry.grid(row=1, column=0, sticky="ew", pady=(8, 16), ipady=12)
         surname_entry.bind("<Return>", lambda _: self.register())
 
         tk.Label(
             frame,
             text="Пароль",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=2, column=0, sticky="w")
         password_entry = create_form_entry(
             frame, textvariable=self.register_password_var, show="*", justify="left"
         )
-        password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 16), ipady=10)
+        password_entry.grid(row=3, column=0, sticky="ew", pady=(8, 16), ipady=12)
         password_entry.bind("<Return>", lambda _: self.register())
 
         tk.Label(
             frame,
             text="Підтвердження пароля",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
         ).grid(row=4, column=0, sticky="w")
         confirm_entry = create_form_entry(
             frame, textvariable=self.register_confirm_var, show="*", justify="left"
         )
-        confirm_entry.grid(row=5, column=0, sticky="ew", pady=(8, 8), ipady=10)
+        confirm_entry.grid(row=5, column=0, sticky="ew", pady=(8, 8), ipady=12)
         confirm_entry.bind("<Return>", lambda _: self.register())
 
         self.register_feedback_label = tk.Label(
             frame,
             textvariable=self.register_message_var,
             font=("Segoe UI", 12),
-            fg="#16a34a",
+            fg=SUCCESS_COLOR,
             bg=CARD_BG,
             wraplength=540,
             justify="left",
@@ -1235,17 +1400,21 @@ class LoginFrame(BaseFrame):
         if is_login:
             self.register_form.grid_forget()
             self.login_form.grid(row=0, column=0, sticky="nsew")
-            self.login_tab.state(["disabled"])
-            self.register_tab.state(["!disabled"])
             self.register_message_var.set("")
             self.after(100, self.login_surname_entry.focus_set)
         else:
             self.login_form.grid_forget()
             self.register_form.grid(row=0, column=0, sticky="nsew")
-            self.register_tab.state(["disabled"])
-            self.login_tab.state(["!disabled"])
             self.login_error_var.set("")
             self.after(100, self.register_surname_entry.focus_set)
+        self.login_tab.state(["!disabled"])
+        self.register_tab.state(["!disabled"])
+        self.login_tab.configure(
+            style="SegmentedActive.TButton" if is_login else "Segmented.TButton"
+        )
+        self.register_tab.configure(
+            style="SegmentedActive.TButton" if not is_login else "Segmented.TButton"
+        )
 
     @staticmethod
     def _to_int(value: Any) -> Optional[int]:
@@ -2016,7 +2185,7 @@ class UserNameFrame(BaseFrame):
         super().__init__(app)
         self.name_var = tk.StringVar(value=app.state_data.user_name)
 
-        wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=120, pady=120)
+        wrapper = tk.Frame(self, bg=PRIMARY_BG, padx=96, pady=96)
         wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.columnconfigure(0, weight=1)
         wrapper.rowconfigure(0, weight=1)
@@ -2025,68 +2194,62 @@ class UserNameFrame(BaseFrame):
             wrapper,
             bg=CARD_BG,
             highlightbackground=NEUTRAL_BORDER,
-            highlightthickness=2,
+            highlightthickness=1,
             bd=0,
         )
         card.grid(row=0, column=0, sticky="nsew")
         card.columnconfigure(0, weight=1)
+        card.rowconfigure(1, weight=1)
 
-        header = tk.Frame(card, bg=ACCENT_COLOR, pady=18, padx=40)
+        header = tk.Frame(card, bg=CARD_BG, padx=48, pady=40)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
-        tk.Label(
+        ttk.Label(header, text="Профіль оператора", style="CardHeading.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(
             header,
-            text="Профіль оператора",
-            font=("Segoe UI", 28, "bold"),
-            fg="white",
-            bg=ACCENT_COLOR,
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            header,
-            text="Вкажіть, хто працює із системою",
-            font=("Segoe UI", 13),
-            fg="#dbeafe",
-            bg=ACCENT_COLOR,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+            text="Вкажіть ім’я, що буде збережено у історії операцій",
+            style="CardSubheading.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        content = tk.Frame(card, bg=CARD_BG, padx=80, pady=60)
+        content = tk.Frame(card, bg=CARD_BG, padx=48, pady=32)
         content.grid(row=1, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
 
-        ttk.Label(
-            content,
-            text="Введіть ім’я оператора",
-            style="CardHeading.TLabel",
-        ).grid(row=0, column=0, sticky="ew")
-        ttk.Label(
-            content,
-            text="Це ім’я буде відображатися у звітах та історії",
-            style="CardSubheading.TLabel",
-        ).grid(row=1, column=0, sticky="ew", pady=(4, 24))
+        badge_row = tk.Frame(content, bg=CARD_BG)
+        badge_row.grid(row=0, column=0, sticky="w", pady=(0, 12))
+        ttk.Label(badge_row, text="Крок 2 з 2", style="CardPill.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
 
-        input_block = tk.Frame(content, bg=CARD_BG)
-        input_block.grid(row=2, column=0, sticky="ew")
-        input_block.columnconfigure(0, weight=1)
         tk.Label(
-            input_block,
+            content,
             text="Ім’я користувача",
             font=("Segoe UI", 12, "bold"),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
-        ).grid(row=0, column=0, sticky="w")
-        entry = create_large_entry(
-            input_block,
-            textvariable=self.name_var,
-        )
-        entry.grid(row=1, column=0, sticky="ew", pady=(8, 0), ipady=40)
+        ).grid(row=1, column=0, sticky="w")
+        entry = create_large_entry(content, textvariable=self.name_var)
+        entry.grid(row=2, column=0, sticky="ew", pady=(12, 0), ipady=18)
         entry.bind("<Return>", lambda _: self.save())
+
+        helper = tk.Frame(content, bg=CARD_BG)
+        helper.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        helper.columnconfigure(0, weight=1)
+        ttk.Label(
+            helper,
+            text="Порада: використовуйте прізвище та ініціали для прозорої звітності",
+            style="CardSubheading.TLabel",
+            wraplength=520,
+        ).grid(row=0, column=0, sticky="w")
 
         ttk.Button(
             content,
-            text="Продовжити",
+            text="Зберегти та перейти",
             command=self.save,
             style="Primary.TButton",
-        ).grid(row=3, column=0, sticky="ew", pady=(32, 0))
+        ).grid(row=4, column=0, sticky="ew", pady=(32, 0))
 
         entry.focus_set()
 
@@ -2107,7 +2270,7 @@ class ScannerFrame(BaseFrame):
         self.ttn_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Готово до введення BoxID")
         self.online_var = tk.StringVar(value="Перевірка зв’язку...")
-        self.online_color = "#facc15"
+        self.online_color = WARNING_COLOR
         self.step_progress_var = tk.StringVar(value="Крок 1 з 2")
         self.step_title_var = tk.StringVar(value="Введіть BoxID")
 
@@ -2118,71 +2281,79 @@ class ScannerFrame(BaseFrame):
             "can_clear_errors"
         )
 
-        shell = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
+        shell = tk.Frame(self, bg=PRIMARY_BG, padx=48, pady=48)
         shell.grid(row=0, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
-        shell.rowconfigure(2, weight=1)
+        shell.rowconfigure(1, weight=1)
 
-        header = tk.Frame(shell, bg=SECONDARY_BG, padx=36, pady=24)
-        header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
-        header.columnconfigure(1, weight=1)
-        header.columnconfigure(2, weight=1)
+        app_bar = tk.Frame(shell, bg=PRIMARY_BG)
+        app_bar.grid(row=0, column=0, sticky="ew")
+        app_bar.columnconfigure(0, weight=1)
+        app_bar.columnconfigure(1, weight=1)
 
+        brand = tk.Frame(app_bar, bg=PRIMARY_BG)
+        brand.grid(row=0, column=0, sticky="w")
         tk.Label(
-            header,
+            brand,
             text="TrackingApp",
             font=("Segoe UI", 30, "bold"),
-            fg="white",
-            bg=SECONDARY_BG,
+            fg="#f8fafc",
+            bg=PRIMARY_BG,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
-            header,
-            text="Корпоративна система відстеження",
-            font=("Segoe UI", 12),
-            fg="#cbd5f5",
-            bg=SECONDARY_BG,
-        ).grid(row=1, column=0, sticky="w")
+            brand,
+            text="Сканування відправлень",
+            font=("Segoe UI", 13),
+            fg="#94a3b8",
+            bg=PRIMARY_BG,
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        connection = tk.Frame(header, bg=SECONDARY_BG)
-        connection.grid(row=0, column=1, rowspan=2, sticky="nsew")
-        connection.columnconfigure(0, weight=1)
-        self.online_chip = tk.Label(
-            connection,
-            textvariable=self.online_var,
-            font=("Segoe UI", 12, "bold"),
-            bg=self.online_color,
-            fg=TEXT_PRIMARY,
-            padx=18,
-            pady=10,
-        )
-        self.online_chip.grid(row=0, column=0, sticky="e")
-
-        user_info = tk.Frame(header, bg=SECONDARY_BG)
-        user_info.grid(row=0, column=2, rowspan=2, sticky="e")
+        user_area = tk.Frame(app_bar, bg=PRIMARY_BG)
+        user_area.grid(row=0, column=1, sticky="e")
         tk.Label(
-            user_info,
-            text=app.state_data.user_name,
-            font=("Segoe UI", 18, "bold"),
-            fg="white",
-            bg=SECONDARY_BG,
+            user_area,
+            text=app.state_data.user_name or "Оператор",
+            font=("Segoe UI", 14, "bold"),
+            fg="#e2e8f0",
+            bg=PRIMARY_BG,
         ).grid(row=0, column=0, sticky="e")
         tk.Label(
-            user_info,
+            user_area,
             text=self.role_info["label"],
-            font=("Segoe UI", 12, "bold"),
+            font=("Segoe UI", 11, "bold"),
+            fg=PILL_TEXT,
+            bg=PILL_BG,
+            padx=14,
+            pady=6,
+        ).grid(row=0, column=1, sticky="e", padx=(12, 0))
+        self.online_chip = tk.Label(
+            user_area,
+            textvariable=self.online_var,
+            font=("Segoe UI", 11, "bold"),
+            bg=self.online_color,
             fg="white",
-            bg=self.role_info["color"],
-            padx=12,
-            pady=4,
-        ).grid(row=1, column=0, sticky="e", pady=(8, 0))
+            padx=14,
+            pady=6,
+        )
+        self.online_chip.grid(row=1, column=0, columnspan=2, sticky="e", pady=(12, 0))
 
-        toolbar = tk.Frame(shell, bg=PRIMARY_BG)
-        toolbar.grid(row=1, column=0, sticky="ew", pady=(24, 0))
-        toolbar.columnconfigure(0, weight=1)
-        nav = tk.Frame(toolbar, bg=PRIMARY_BG)
-        nav.grid(row=0, column=0, sticky="e")
+        nav = tk.Frame(app_bar, bg=PRIMARY_BG)
+        nav.grid(row=1, column=0, columnspan=2, sticky="e", pady=(28, 0))
         column = 0
+        ttk.Button(
+            nav,
+            text="Журнал відправлень",
+            command=self.open_history,
+            style="Secondary.TButton",
+        ).grid(row=0, column=column, padx=6)
+        column += 1
+        ttk.Button(
+            nav,
+            text="Журнал помилок",
+            command=self.open_errors,
+            style="Secondary.TButton",
+        ).grid(row=0, column=column, padx=6)
+        column += 1
         if self.is_admin:
             ttk.Button(
                 nav,
@@ -2193,74 +2364,65 @@ class ScannerFrame(BaseFrame):
             column += 1
         ttk.Button(
             nav,
-            text="Історія",
-            command=self.open_history,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
-        column += 1
-        ttk.Button(
-            nav,
-            text="Помилки",
-            command=self.open_errors,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
-        column += 1
-        ttk.Button(
-            nav,
             text="Вийти",
             command=self.logout,
             style="Secondary.TButton",
         ).grid(row=0, column=column, padx=6)
 
-        content = tk.Frame(shell, bg=PRIMARY_BG, padx=12, pady=12)
-        content.grid(row=2, column=0, sticky="nsew", pady=(24, 0))
-        content.columnconfigure(0, weight=1)
-        content.rowconfigure(0, weight=1)
-
         card = tk.Frame(
-            content,
+            shell,
             bg=CARD_BG,
             highlightbackground=NEUTRAL_BORDER,
-            highlightthickness=2,
-            padx=64,
-            pady=52,
+            highlightthickness=1,
+            bd=0,
         )
-        card.grid(row=0, column=0, sticky="nsew")
+        card.grid(row=1, column=0, sticky="nsew", pady=(36, 0))
         card.columnconfigure(0, weight=1)
+        card.rowconfigure(1, weight=1)
 
-        header_section = tk.Frame(card, bg=CARD_BG)
+        header_section = tk.Frame(card, bg=CARD_BG, padx=48, pady=40)
         header_section.grid(row=0, column=0, sticky="ew")
         header_section.columnconfigure(0, weight=1)
         ttk.Label(
             header_section,
             textvariable=self.step_progress_var,
-            style="CardSubheading.TLabel",
+            style="CardPill.TLabel",
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
             header_section,
             textvariable=self.step_title_var,
             style="CardHeading.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(4, 32))
+        ).grid(row=1, column=0, sticky="w", pady=(12, 8))
+        ttk.Label(
+            header_section,
+            text="Скануйте BoxID та підтверджуйте ТТН для синхронізації з сервером",
+            style="CardSubheading.TLabel",
+            wraplength=520,
+        ).grid(row=2, column=0, sticky="w")
+
+        inputs = tk.Frame(card, bg=CARD_BG, padx=48, pady=0)
+        inputs.grid(row=1, column=0, sticky="nsew")
+        inputs.columnconfigure(0, weight=1)
 
         self.box_group, self.box_entry = self._create_input_group(
-            card,
+            inputs,
             title="BoxID",
             variable=self.box_var,
-            row=1,
+            row=0,
         )
         self.box_entry.bind("<Return>", lambda _: self.to_next())
 
         self.ttn_group, self.ttn_entry = self._create_input_group(
-            card,
+            inputs,
             title="Товарно-транспортна накладна",
             variable=self.ttn_var,
-            row=2,
+            row=1,
         )
         self.ttn_entry.configure(state="disabled")
         self.ttn_entry.bind("<Return>", lambda _: self.submit())
 
-        actions = tk.Frame(card, bg=CARD_BG)
-        actions.grid(row=3, column=0, sticky="ew", pady=(32, 0))
+        actions = tk.Frame(inputs, bg=CARD_BG)
+        actions.grid(row=2, column=0, sticky="ew", pady=(16, 0))
         actions.columnconfigure(0, weight=1)
         actions.columnconfigure(1, weight=1)
         self.primary_button = ttk.Button(
@@ -2273,20 +2435,27 @@ class ScannerFrame(BaseFrame):
         ttk.Button(
             actions,
             text="Скинути поля",
-            style="Secondary.TButton",
+            style="Outline.TButton",
             command=self.reset_fields,
         ).grid(row=0, column=1, sticky="ew")
 
-        status_panel = tk.Frame(card, bg="#f8fafc", padx=20, pady=20)
-        status_panel.grid(row=4, column=0, sticky="ew", pady=(40, 0))
+        status_panel = tk.Frame(
+            card,
+            bg=SURFACE_BG,
+            padx=36,
+            pady=28,
+            highlightbackground=NEUTRAL_BORDER,
+            highlightthickness=1,
+        )
+        status_panel.grid(row=2, column=0, sticky="ew", padx=48, pady=(32, 48))
         status_panel.columnconfigure(0, weight=1)
         tk.Label(
             status_panel,
             textvariable=self.status_var,
-            font=("Segoe UI", 14),
+            font=("Segoe UI", 13),
             fg=TEXT_SECONDARY,
-            bg="#f8fafc",
-            wraplength=1200,
+            bg=SURFACE_BG,
+            wraplength=960,
             justify="center",
         ).grid(row=0, column=0, sticky="ew")
 
@@ -2314,16 +2483,16 @@ class ScannerFrame(BaseFrame):
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
         entry = create_large_entry(frame, textvariable=variable)
-        entry.grid(row=1, column=0, sticky="ew", pady=(8, 0), ipady=10)
+        entry.grid(row=1, column=0, sticky="ew", pady=(8, 0), ipady=14)
         return frame, entry
 
     def set_online_state(self, online: bool) -> None:
         if online:
-            self.online_color = "#16a34a"
+            self.online_color = SUCCESS_COLOR
             self.online_var.set("🟢 Підключення активне")
             fg = "white"
         else:
-            self.online_color = "#dc2626"
+            self.online_color = ERROR_COLOR
             self.online_var.set("🔴 Немає зв’язку з сервером")
             fg = "white"
         self.online_chip.configure(bg=self.online_color, fg=fg)
@@ -2446,109 +2615,38 @@ class HistoryFrame(BaseFrame):
             "can_clear_errors"
         )
 
-        shell = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
-        shell.grid(row=0, column=0, sticky="nsew")
-        shell.columnconfigure(0, weight=1)
-        shell.rowconfigure(1, weight=1)
-
-        header = tk.Frame(shell, bg=SECONDARY_BG, padx=36, pady=24)
-        header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
-        header.columnconfigure(1, weight=1)
-        header.columnconfigure(2, weight=1)
-
-        branding = tk.Frame(header, bg=SECONDARY_BG)
-        branding.grid(row=0, column=0, rowspan=2, sticky="w")
-        tk.Label(
-            branding,
-            text="Історія операцій",
-            font=("Segoe UI", 26, "bold"),
-            fg="white",
-            bg=SECONDARY_BG,
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            branding,
-            text="Переглядайте та фільтруйте всі записані відправлення",
-            font=("Segoe UI", 12),
-            fg="#cbd5f5",
-            bg=SECONDARY_BG,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
-
-        user_info = tk.Frame(header, bg=SECONDARY_BG)
-        user_info.grid(row=0, column=1, rowspan=2, sticky="e")
-        tk.Label(
-            user_info,
-            text=app.state_data.user_name,
-            font=("Segoe UI", 18, "bold"),
-            fg="white",
-            bg=SECONDARY_BG,
-        ).grid(row=0, column=0, sticky="e")
-        tk.Label(
-            user_info,
-            text=self.role_info["label"],
-            font=("Segoe UI", 12, "bold"),
-            fg="white",
-            bg=self.role_info["color"],
-            padx=12,
-            pady=4,
-        ).grid(row=1, column=0, sticky="e", pady=(8, 0))
-
-        nav = tk.Frame(header, bg=SECONDARY_BG)
-        nav.grid(row=0, column=2, rowspan=2, sticky="e")
-        column = 0
-        ttk.Button(
-            nav,
-            text="⬅ Головна",
-            command=self.app.show_scanner,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
-        column += 1
-        ttk.Button(
-            nav,
-            text="Журнал помилок",
-            command=self.app.show_errors,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
-        column += 1
+        nav_actions: List[Tuple[str, Callable[[], None]]] = [
+            ("⬅ Сканування", self.app.show_scanner),
+            ("Журнал помилок", self.app.show_errors),
+        ]
         if self.is_admin:
-            ttk.Button(
-                nav,
-                text="Статистика",
-                command=self.app.show_statistics,
-                style="Secondary.TButton",
-            ).grid(row=0, column=column, padx=6)
-            column += 1
-        ttk.Button(nav, text="Вийти", command=self.logout, style="Secondary.TButton").grid(row=0, column=column, padx=6)
+            nav_actions.append(("Статистика", self.app.show_statistics))
+        nav_actions.append(("Вийти", self.logout))
 
-        content = tk.Frame(shell, bg=PRIMARY_BG, padx=32, pady=24)
-        content.grid(row=1, column=0, sticky="nsew")
-        content.columnconfigure(0, weight=1)
-        content.rowconfigure(0, weight=1)
-
-        card = tk.Frame(
-            content,
-            bg=CARD_BG,
-            highlightbackground=NEUTRAL_BORDER,
-            highlightthickness=2,
-            padx=36,
-            pady=32,
+        _, card = self.build_surface(
+            title="Історія операцій",
+            subtitle="Перегляд та фільтрація усіх сканувань",
+            nav_actions=nav_actions,
         )
-        card.grid(row=0, column=0, sticky="nsew")
-        card.columnconfigure(0, weight=1)
-        card.rowconfigure(3, weight=1)
+        card.rowconfigure(0, weight=1)
+
+        content = tk.Frame(card, bg=CARD_BG, padx=36, pady=32)
+        content.grid(row=0, column=0, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(3, weight=1)
 
         ttk.Label(
-            card,
+            content,
             text="Зведення сканувань",
             style="CardHeading.TLabel",
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
-            card,
+            content,
             text="Швидкий пошук за BoxID, ТТН, користувачем або датою",
             style="CardSubheading.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 16))
 
-        filters = tk.Frame(card, bg=CARD_BG)
+        filters = tk.Frame(content, bg=CARD_BG)
         filters.grid(row=2, column=0, sticky="ew")
         filters.columnconfigure(0, weight=1)
 
@@ -2571,10 +2669,10 @@ class HistoryFrame(BaseFrame):
         ttk.Button(buttons, text="Дата", command=self.pick_date, style="Secondary.TButton").grid(row=0, column=0, padx=4)
         ttk.Button(buttons, text="Початок", command=lambda: self.pick_time(True), style="Secondary.TButton").grid(row=0, column=1, padx=4)
         ttk.Button(buttons, text="Кінець", command=lambda: self.pick_time(False), style="Secondary.TButton").grid(row=0, column=2, padx=4)
-        ttk.Button(buttons, text="Скинути", command=self.clear_filters, style="Secondary.TButton").grid(row=0, column=3, padx=4)
-        ttk.Button(buttons, text="Оновити", command=self.fetch_history, style="Secondary.TButton").grid(row=0, column=4, padx=4)
+        ttk.Button(buttons, text="Скинути", command=self.clear_filters, style="Outline.TButton").grid(row=0, column=3, padx=4)
+        ttk.Button(buttons, text="Оновити", command=self.fetch_history, style="Primary.TButton").grid(row=0, column=4, padx=4)
         if self.role_info["can_clear_history"]:
-            ttk.Button(buttons, text="Очистити", command=self.clear_history, style="Secondary.TButton").grid(row=0, column=5, padx=4)
+            ttk.Button(buttons, text="Очистити", command=self.clear_history, style="Outline.TButton").grid(row=0, column=5, padx=4)
 
         status = tk.Frame(filters, bg=CARD_BG)
         status.grid(row=1, column=0, columnspan=2, sticky="w", pady=(12, 0))
@@ -2587,7 +2685,7 @@ class HistoryFrame(BaseFrame):
         ttk.Label(status, textvariable=self.start_display, style="Card.TLabel").grid(row=0, column=1, padx=(0, 24))
         ttk.Label(status, textvariable=self.end_display, style="Card.TLabel").grid(row=0, column=2)
 
-        tree_container = tk.Frame(card, bg=CARD_BG)
+        tree_container = tk.Frame(content, bg=CARD_BG)
         tree_container.grid(row=3, column=0, sticky="nsew", pady=(24, 0))
         tree_container.columnconfigure(0, weight=1)
         tree_container.rowconfigure(0, weight=1)
@@ -2817,85 +2915,33 @@ class StatisticsFrame(BaseFrame):
         self.error_counts: Dict[str, int] = {}
         self.daily_rows: List[Tuple[str, int, int, str, str]] = []
 
-        shell = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
-        shell.grid(row=0, column=0, sticky="nsew")
-        shell.columnconfigure(0, weight=1)
-        shell.rowconfigure(1, weight=1)
+        nav_actions: List[Tuple[str, Callable[[], None]]] = [
+            ("⬅ Сканування", self.app.show_scanner),
+            ("Історія", self.app.show_history),
+            ("Журнал помилок", self.app.show_errors),
+            ("Вийти", self.logout),
+        ]
 
-        header = tk.Frame(shell, bg=SECONDARY_BG, padx=36, pady=24)
-        header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
-        header.columnconfigure(1, weight=1)
-        header.columnconfigure(2, weight=1)
-
-        branding = tk.Frame(header, bg=SECONDARY_BG)
-        branding.grid(row=0, column=0, rowspan=2, sticky="w")
-        tk.Label(
-            branding,
-            text="Аналітика сканувань",
-            font=("Segoe UI", 26, "bold"),
-            fg="white",
-            bg=SECONDARY_BG,
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            branding,
-            text="Переглядайте продуктивність команди та помилки за обраний період",
-            font=("Segoe UI", 12),
-            fg="#cbd5f5",
-            bg=SECONDARY_BG,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
-
-        user_info = tk.Frame(header, bg=SECONDARY_BG)
-        user_info.grid(row=0, column=1, rowspan=2, sticky="e")
-        tk.Label(
-            user_info,
-            text=app.state_data.user_name,
-            font=("Segoe UI", 18, "bold"),
-            fg="white",
-            bg=SECONDARY_BG,
-        ).grid(row=0, column=0, sticky="e")
-        tk.Label(
-            user_info,
-            text=self.role_info["label"],
-            font=("Segoe UI", 12, "bold"),
-            fg="white",
-            bg=self.role_info["color"],
-            padx=12,
-            pady=4,
-        ).grid(row=1, column=0, sticky="e", pady=(8, 0))
-
-        nav = tk.Frame(header, bg=SECONDARY_BG)
-        nav.grid(row=0, column=2, rowspan=2, sticky="e")
-        ttk.Button(nav, text="⬅ Головна", command=self.app.show_scanner, style="Secondary.TButton").grid(row=0, column=0, padx=6)
-        ttk.Button(nav, text="Історія", command=self.app.show_history, style="Secondary.TButton").grid(row=0, column=1, padx=6)
-        ttk.Button(nav, text="Журнал помилок", command=self.app.show_errors, style="Secondary.TButton").grid(row=0, column=2, padx=6)
-        ttk.Button(nav, text="Вийти", command=self.logout, style="Secondary.TButton").grid(row=0, column=3, padx=6)
-
-        content = tk.Frame(shell, bg=PRIMARY_BG, padx=32, pady=24)
-        content.grid(row=1, column=0, sticky="nsew")
-        content.columnconfigure(0, weight=1)
-        content.rowconfigure(0, weight=1)
-
-        card = tk.Frame(
-            content,
-            bg=CARD_BG,
-            highlightbackground=NEUTRAL_BORDER,
-            highlightthickness=2,
-            padx=36,
-            pady=32,
+        _, card = self.build_surface(
+            title="Аналітика сканувань",
+            subtitle="Переглядайте продуктивність команди та помилки за обраний період",
+            nav_actions=nav_actions,
         )
-        card.grid(row=0, column=0, sticky="nsew")
-        card.columnconfigure(0, weight=1)
-        card.rowconfigure(6, weight=1)
+        card.rowconfigure(0, weight=1)
 
-        ttk.Label(card, text="Адміністративна статистика", style="CardHeading.TLabel").grid(row=0, column=0, sticky="w")
+        content = tk.Frame(card, bg=CARD_BG, padx=36, pady=32)
+        content.grid(row=0, column=0, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(6, weight=1)
+
+        ttk.Label(content, text="Адміністративна статистика", style="CardHeading.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
-            card,
+            content,
             text="Виберіть період та аналізуйте навантаження операторів",
             style="CardSubheading.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 16))
 
-        filters = tk.Frame(card, bg=CARD_BG)
+        filters = tk.Frame(content, bg=CARD_BG)
         filters.grid(row=2, column=0, sticky="ew")
         filters.columnconfigure(0, weight=1)
 
@@ -2917,7 +2963,7 @@ class StatisticsFrame(BaseFrame):
         ttk.Button(buttons, text="Час завершення", command=self.pick_end_time, style="Secondary.TButton").grid(
             row=0, column=3, padx=4
         )
-        ttk.Button(buttons, text="Скинути", command=self.reset_period, style="Secondary.TButton").grid(
+        ttk.Button(buttons, text="Скинути", command=self.reset_period, style="Outline.TButton").grid(
             row=0, column=4, padx=4
         )
         ttk.Button(buttons, text="Оновити дані", command=self.fetch_data, style="Secondary.TButton").grid(
@@ -2927,13 +2973,13 @@ class StatisticsFrame(BaseFrame):
             row=0, column=6, padx=4
         )
 
-        status = tk.Frame(card, bg=CARD_BG)
+        status = tk.Frame(content, bg=CARD_BG)
         status.grid(row=3, column=0, sticky="w", pady=(12, 0))
         ttk.Label(status, textvariable=self.status_var, style="CardSubheading.TLabel").grid(
             row=0, column=0, sticky="w"
         )
 
-        metrics = tk.Frame(card, bg=CARD_BG)
+        metrics = tk.Frame(content, bg=CARD_BG)
         metrics.grid(row=4, column=0, sticky="ew", pady=(24, 0))
         for col in range(4):
             metrics.columnconfigure(col, weight=1)
@@ -2943,7 +2989,7 @@ class StatisticsFrame(BaseFrame):
         self._create_metric(metrics, 2, "Помилок", self.total_errors_var)
         self._create_metric(metrics, 3, "Користувачів з помилками", self.error_users_var)
 
-        insights = tk.Frame(card, bg=CARD_BG)
+        insights = tk.Frame(content, bg=CARD_BG)
         insights.grid(row=5, column=0, sticky="ew", pady=(28, 0))
         insights.columnconfigure(0, weight=1)
         insights.columnconfigure(1, weight=1)
@@ -2965,7 +3011,7 @@ class StatisticsFrame(BaseFrame):
             suffix="помилок",
         )
 
-        tables = tk.Frame(card, bg=CARD_BG)
+        tables = tk.Frame(content, bg=CARD_BG)
         tables.grid(row=6, column=0, sticky="nsew", pady=(32, 0))
         tables.columnconfigure(0, weight=1)
         tables.columnconfigure(1, weight=1)
@@ -3487,114 +3533,43 @@ class ErrorsFrame(BaseFrame):
             "can_clear_errors"
         )
 
-        shell = tk.Frame(self, bg=PRIMARY_BG, padx=24, pady=24)
-        shell.grid(row=0, column=0, sticky="nsew")
-        shell.columnconfigure(0, weight=1)
-        shell.rowconfigure(1, weight=1)
-
-        header = tk.Frame(shell, bg=SECONDARY_BG, padx=36, pady=24)
-        header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
-        header.columnconfigure(1, weight=1)
-        header.columnconfigure(2, weight=1)
-
-        branding = tk.Frame(header, bg=SECONDARY_BG)
-        branding.grid(row=0, column=0, rowspan=2, sticky="w")
-        tk.Label(
-            branding,
-            text="Журнал помилок",
-            font=("Segoe UI", 26, "bold"),
-            fg="white",
-            bg=SECONDARY_BG,
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            branding,
-            text="Аналізуйте проблеми синхронізації та очищайте журнал",
-            font=("Segoe UI", 12),
-            fg="#cbd5f5",
-            bg=SECONDARY_BG,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
-
-        user_info = tk.Frame(header, bg=SECONDARY_BG)
-        user_info.grid(row=0, column=1, rowspan=2, sticky="e")
-        tk.Label(
-            user_info,
-            text=app.state_data.user_name,
-            font=("Segoe UI", 18, "bold"),
-            fg="white",
-            bg=SECONDARY_BG,
-        ).grid(row=0, column=0, sticky="e")
-        tk.Label(
-            user_info,
-            text=self.role_info["label"],
-            font=("Segoe UI", 12, "bold"),
-            fg="white",
-            bg=self.role_info["color"],
-            padx=12,
-            pady=4,
-        ).grid(row=1, column=0, sticky="e", pady=(8, 0))
-
-        nav = tk.Frame(header, bg=SECONDARY_BG)
-        nav.grid(row=0, column=2, rowspan=2, sticky="e")
-        column = 0
-        ttk.Button(
-            nav,
-            text="⬅ Головна",
-            command=self.app.show_scanner,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
-        column += 1
-        ttk.Button(
-            nav,
-            text="Історія сканувань",
-            command=self.app.show_history,
-            style="Secondary.TButton",
-        ).grid(row=0, column=column, padx=6)
-        column += 1
+        nav_actions: List[Tuple[str, Callable[[], None]]] = [
+            ("⬅ Сканування", self.app.show_scanner),
+            ("Історія", self.app.show_history),
+        ]
         if self.is_admin:
-            ttk.Button(
-                nav,
-                text="Статистика",
-                command=self.app.show_statistics,
-                style="Secondary.TButton",
-            ).grid(row=0, column=column, padx=6)
-            column += 1
-        ttk.Button(nav, text="Вийти", command=self.logout, style="Secondary.TButton").grid(row=0, column=column, padx=6)
+            nav_actions.append(("Статистика", self.app.show_statistics))
+        nav_actions.append(("Вийти", self.logout))
 
-        content = tk.Frame(shell, bg=PRIMARY_BG, padx=32, pady=24)
-        content.grid(row=1, column=0, sticky="nsew")
-        content.columnconfigure(0, weight=1)
-        content.rowconfigure(0, weight=1)
-
-        card = tk.Frame(
-            content,
-            bg=CARD_BG,
-            highlightbackground=NEUTRAL_BORDER,
-            highlightthickness=2,
-            padx=36,
-            pady=32,
+        _, card = self.build_surface(
+            title="Журнал помилок",
+            subtitle="Аналізуйте проблеми синхронізації та очищайте журнал",
+            nav_actions=nav_actions,
         )
-        card.grid(row=0, column=0, sticky="nsew")
-        card.columnconfigure(0, weight=1)
-        card.rowconfigure(3, weight=1)
+        card.rowconfigure(0, weight=1)
 
-        ttk.Label(card, text="Виявлені помилки", style="CardHeading.TLabel").grid(row=0, column=0, sticky="w")
+        content = tk.Frame(card, bg=CARD_BG, padx=36, pady=32)
+        content.grid(row=0, column=0, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(3, weight=1)
+
+        ttk.Label(content, text="Виявлені помилки", style="CardHeading.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
-            card,
+            content,
             text="Подвійний клік видаляє запис (для ролей з правами)",
             style="CardSubheading.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 20))
 
-        toolbar = tk.Frame(card, bg=CARD_BG)
+        toolbar = tk.Frame(content, bg=CARD_BG)
         toolbar.grid(row=2, column=0, sticky="ew")
         toolbar.columnconfigure(0, weight=1)
         button_bar = tk.Frame(toolbar, bg=CARD_BG)
         button_bar.grid(row=0, column=1, sticky="e")
-        ttk.Button(button_bar, text="Оновити", command=self.fetch_errors, style="Secondary.TButton").grid(row=0, column=0, padx=4)
+        ttk.Button(button_bar, text="Оновити", command=self.fetch_errors, style="Primary.TButton").grid(row=0, column=0, padx=4)
         if self.role_info["can_clear_errors"]:
-            ttk.Button(button_bar, text="Очистити всі", command=self.clear_errors, style="Secondary.TButton").grid(row=0, column=1, padx=4)
+            ttk.Button(button_bar, text="Очистити всі", command=self.clear_errors, style="Outline.TButton").grid(row=0, column=1, padx=4)
 
-        tree_container = tk.Frame(card, bg=CARD_BG)
+        tree_container = tk.Frame(content, bg=CARD_BG)
         tree_container.grid(row=3, column=0, sticky="nsew", pady=(24, 0))
         tree_container.columnconfigure(0, weight=1)
         tree_container.rowconfigure(0, weight=1)
