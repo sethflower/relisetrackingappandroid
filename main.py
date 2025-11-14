@@ -29,6 +29,25 @@ CONFIG_PATH = Path("tracking_desktop_profile.json")
 QUEUE_DB_PATH = Path("tracking_offline_queue.db")
 REQUEST_TIMEOUT = 12
 
+PALETTE = {
+    "canvas": "#ecf1f9",
+    "surface": "#ffffff",
+    "surface_alt": "#f5f7fb",
+    "accent": "#2563eb",
+    "accent_hover": "#1d4ed8",
+    "accent_active": "#1e40af",
+    "nav_bg": "#0b1f3a",
+    "nav_hover": "#15325c",
+    "nav_active": "#1d4ed8",
+    "hero_bg": "#10243c",
+    "hero_text": "#e2e8f0",
+    "text": "#1f2933",
+    "muted": "#5f6c7b",
+    "success": "#1f8a4c",
+    "warning": "#d97706",
+    "danger": "#b91c1c",
+}
+
 
 @dataclass
 class UserProfile:
@@ -371,8 +390,15 @@ class AsyncRunner:
 
 class Screen(ttk.Frame):
     def __init__(self, master: tk.Widget, app: "TrackingDesktopApp") -> None:
-        super().__init__(master)
+        super().__init__(master, style="Screen.TFrame")
         self.app = app
+
+        # ensure consistent internal spacing for each dashboard screen
+        if isinstance(self, LoginScreen):  # pragma: no cover - handled explicitly
+            return
+        self.configure(padding=(32, 24))
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
     def on_show(self) -> None:  # pragma: no cover - hook for subclasses
         pass
@@ -383,35 +409,70 @@ class AccentButton(ttk.Button):
         super().__init__(master, style="Accent.TButton", **kwargs)
 
 
+class NavButton(ttk.Button):
+    def __init__(self, master: tk.Widget, **kwargs: Any) -> None:
+        super().__init__(master, style="Nav.TButton", **kwargs)
+
+
 class LoginScreen(Screen):
     def __init__(self, master: tk.Widget, app: "TrackingDesktopApp") -> None:
         super().__init__(master, app)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        wrapper = ttk.Frame(self, padding=48)
+        wrapper = ttk.Frame(self, padding=64, style="Screen.TFrame")
         wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.columnconfigure(0, weight=1)
+        wrapper.columnconfigure(1, weight=1)
+        wrapper.rowconfigure(0, weight=1)
+
+        hero = ttk.Frame(wrapper, padding=(36, 64), style="Hero.TFrame")
+        hero.grid(row=0, column=0, sticky="nsew", padx=(0, 48))
+        hero.columnconfigure(0, weight=1)
+        hero.rowconfigure(4, weight=1)
+        ttk.Label(hero, text="RELlSE", style="HeroBrand.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            hero,
+            text="Корпоративна панель моніторингу відправлень",
+            style="HeroSubtitle.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(12, 32))
+
+        for idx, text in enumerate(
+            (
+                "Єдина база сканувань у реальному часі",
+                "Офлайн резерв з автоматичною синхронізацією",
+                "Контроль команд, помилок і статистики",
+            )
+        ):
+            ttk.Label(hero, text=f"• {text}", style="HeroBullet.TLabel").grid(
+                row=2 + idx, column=0, sticky="w", pady=6
+            )
+
+        ttk.Label(
+            hero,
+            text="Windows-додаток для складу та офісу",
+            style="HeroBadge.TLabel",
+        ).grid(row=5, column=0, sticky="sw", pady=(48, 0))
 
         card = ttk.Frame(wrapper, padding=40, style="Card.TFrame")
-        card.grid(row=0, column=0, sticky="nsew")
+        card.grid(row=0, column=1, sticky="nsew")
         card.columnconfigure(0, weight=1)
 
-        ttk.Label(card, text="Relise Tracking", font=("Segoe UI", 28, "bold")).grid(
+        ttk.Label(card, text="Вхід до системи", style="CardTitle.TLabel").grid(
             row=0, column=0, sticky="w"
         )
         ttk.Label(
             card,
-            text="Єдина система сканування для складу",
-            foreground="#586274",
+            text="Використовуйте корпоративний обліковий запис",
+            style="Muted.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 24))
 
-        self._tabs = ttk.Notebook(card)
+        self._tabs = ttk.Notebook(card, style="Relise.TNotebook")
         self._tabs.grid(row=2, column=0, sticky="nsew")
         card.rowconfigure(2, weight=1)
 
-        self._login_tab = ttk.Frame(self._tabs, padding=16)
-        self._register_tab = ttk.Frame(self._tabs, padding=16)
+        self._login_tab = ttk.Frame(self._tabs, padding=16, style="Surface.TFrame")
+        self._register_tab = ttk.Frame(self._tabs, padding=16, style="Surface.TFrame")
         self._tabs.add(self._login_tab, text="Вхід")
         self._tabs.add(self._register_tab, text="Реєстрація")
 
@@ -423,8 +484,8 @@ class LoginScreen(Screen):
         )
         ttk.Label(
             card,
-            text="Версія Windows. Дані синхронізовані з мобільним додатком.",
-            foreground="#7a8699",
+            text="Дані синхронізовані з мобільним застосунком",
+            style="MutedSmall.TLabel",
         ).grid(row=4, column=0, sticky="w", pady=(16, 0))
 
     def _build_login_tab(self) -> None:
@@ -432,7 +493,7 @@ class LoginScreen(Screen):
         frame.columnconfigure(0, weight=1)
         self._login_surname = tk.StringVar()
         self._login_password = tk.StringVar()
-        self._login_status = ttk.Label(frame, foreground="#d64541")
+        self._login_status = ttk.Label(frame, foreground=PALETTE["danger"], style="MutedSmall.TLabel")
 
         ttk.Label(frame, text="Прізвище", font=("Segoe UI", 11, "bold")).grid(
             row=0, column=0, sticky="w"
@@ -473,7 +534,10 @@ class LoginScreen(Screen):
                 self._login_status.configure(text=str(result))
                 return
             assert isinstance(result, UserProfile)
-            self._login_status.configure(text="Успішно! Завантаження даних...", foreground="#2a7d2a")
+            self._login_status.configure(
+                text="Успішно! Завантаження даних...",
+                foreground=PALETTE["success"],
+            )
             self.app.on_login_success(result)
 
         self.app.run_async(task, done)
@@ -484,7 +548,7 @@ class LoginScreen(Screen):
         self._reg_surname = tk.StringVar()
         self._reg_password = tk.StringVar()
         self._reg_confirm = tk.StringVar()
-        self._reg_status = ttk.Label(frame, foreground="#d64541")
+        self._reg_status = ttk.Label(frame, foreground=PALETTE["danger"], style="MutedSmall.TLabel")
 
         ttk.Label(frame, text="Прізвище", font=("Segoe UI", 11, "bold")).grid(
             row=0, column=0, sticky="w"
@@ -578,57 +642,60 @@ class LoginScreen(Screen):
 class ScannerScreen(Screen):
     def __init__(self, master: tk.Widget, app: "TrackingDesktopApp") -> None:
         super().__init__(master, app)
-        self.columnconfigure(0, weight=1)
         self._box = tk.StringVar()
         self._ttn = tk.StringVar()
         self._status = tk.StringVar(value="Готово до сканування")
         self._queue_status = tk.StringVar(value="Офлайн записів: 0")
         self._busy = False
 
-        form = ttk.Frame(self, padding=32)
-        form.grid(row=0, column=0, sticky="nsew")
-        form.columnconfigure(0, weight=1)
+        card = ttk.Frame(self, style="Card.TFrame", padding=32)
+        card.grid(row=0, column=0, sticky="nsew")
+        card.columnconfigure(0, weight=1)
 
-        ttk.Label(form, text="Сканування", font=("Segoe UI", 24, "bold")).grid(
-            row=0, column=0, sticky="w"
-        )
+        header = ttk.Frame(card, style="Card.TFrame")
+        header.grid(row=0, column=0, sticky="ew")
+        ttk.Label(header, text="Сканування", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
-            form,
-            text="Послідовно зчитуйте BoxID та TTN. Дані відправляються у спільну базу.",
-            foreground="#6b7688",
-        ).grid(row=1, column=0, sticky="w", pady=(4, 24))
+            header,
+            text="Послідовно зчитуйте BoxID та TTN — дані миттєво з'являються у спільній базі",
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(6, 24))
 
-        box_row = ttk.Frame(form)
+        box_row = ttk.Frame(card, style="Card.TFrame")
         box_row.grid(row=2, column=0, sticky="ew", pady=(0, 12))
         box_row.columnconfigure(1, weight=1)
-        ttk.Label(box_row, text="BoxID", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w", padx=(0, 12))
+        ttk.Label(box_row, text="BoxID", font=("Segoe UI", 11, "bold"), background=PALETTE["surface"]).grid(
+            row=0, column=0, sticky="w", padx=(0, 12)
+        )
         box_entry = ttk.Entry(box_row, textvariable=self._box, font=("Segoe UI", 14))
         box_entry.grid(row=0, column=1, sticky="ew")
         box_entry.focus_set()
         box_entry.bind("<Return>", lambda _: self._focus_ttn())
 
-        ttn_row = ttk.Frame(form)
+        ttn_row = ttk.Frame(card, style="Card.TFrame")
         ttn_row.grid(row=3, column=0, sticky="ew", pady=(0, 12))
         ttn_row.columnconfigure(1, weight=1)
-        ttk.Label(ttn_row, text="TTN", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w", padx=(0, 12))
+        ttk.Label(ttn_row, text="TTN", font=("Segoe UI", 11, "bold"), background=PALETTE["surface"]).grid(
+            row=0, column=0, sticky="w", padx=(0, 12)
+        )
         self._ttn_entry = ttk.Entry(ttn_row, textvariable=self._ttn, font=("Segoe UI", 14))
         self._ttn_entry.grid(row=0, column=1, sticky="ew")
         self._ttn_entry.bind("<Return>", lambda _: self._submit())
 
-        buttons = ttk.Frame(form)
+        buttons = ttk.Frame(card, style="Card.TFrame")
         buttons.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         buttons.columnconfigure(1, weight=1)
         AccentButton(buttons, text="Зберегти", command=self._submit).grid(row=0, column=0, sticky="ew")
         ttk.Button(buttons, text="Очистити", command=self._clear).grid(row=0, column=1, sticky="ew", padx=(12, 0))
 
-        ttk.Label(form, textvariable=self._status, foreground="#2a7d2a").grid(
-            row=5, column=0, sticky="w", pady=(18, 0)
-        )
-        ttk.Label(form, textvariable=self._queue_status, foreground="#7a8699").grid(
+        self._status_label = ttk.Label(card, textvariable=self._status, style="Muted.TLabel")
+        self._status_label.grid(row=5, column=0, sticky="w", pady=(18, 0))
+        self._status_label.configure(foreground=PALETTE["muted"])
+        ttk.Label(card, textvariable=self._queue_status, style="MutedSmall.TLabel").grid(
             row=6, column=0, sticky="w"
         )
 
-        AccentButton(form, text="Синхронізувати офлайн", command=self._sync_queue).grid(
+        AccentButton(card, text="Синхронізувати офлайн", command=self._sync_queue).grid(
             row=7, column=0, sticky="w", pady=(18, 0)
         )
 
@@ -643,6 +710,7 @@ class ScannerScreen(Screen):
         self._box.set("")
         self._ttn.set("")
         self._status.set("Готово до сканування")
+        self._status_label.configure(foreground=PALETTE["muted"])
 
     def _submit(self) -> None:
         if self._busy:
@@ -659,6 +727,7 @@ class ScannerScreen(Screen):
 
         self._busy = True
         self._status.set("Надсилаємо...")
+        self._status_label.configure(foreground=PALETTE["muted"])
 
         def task() -> Any:
             try:
@@ -674,14 +743,18 @@ class ScannerScreen(Screen):
                 self.app.offline_queue.add(profile.surname, boxid, ttn)
                 self.update_queue_status()
                 self._status.set("📦 Офлайн: запис збережено локально")
+                self._status_label.configure(foreground=PALETTE["warning"])
             elif isinstance(result, ApiError):
                 self._status.set(f"Помилка: {result}")
+                self._status_label.configure(foreground=PALETTE["danger"])
             else:
                 note = result.get("note") if isinstance(result, dict) else None
                 if note:
                     self._status.set(f"⚠️ Дублікат: {note}")
+                    self._status_label.configure(foreground=PALETTE["warning"])
                 else:
                     self._status.set("✅ Успішно збережено")
+                    self._status_label.configure(foreground=PALETTE["success"])
             self._box.set("")
             self._ttn.set("")
             self._focus_ttn()
@@ -702,20 +775,23 @@ class HistoryScreen(Screen):
     def __init__(self, master: tk.Widget, app: "TrackingDesktopApp") -> None:
         super().__init__(master, app)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.rowconfigure(0, weight=1)
         self._records: List[Dict[str, Any]] = []
         self._filtered: List[Dict[str, Any]] = []
 
-        header = ttk.Frame(self, padding=(24, 18, 24, 0))
+        card = ttk.Frame(self, style="Card.TFrame", padding=24)
+        card.grid(row=0, column=0, sticky="nsew")
+        card.columnconfigure(0, weight=1)
+        card.rowconfigure(3, weight=1)
+
+        header = ttk.Frame(card, style="Card.TFrame")
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, text="Історія сканувань", font=("Segoe UI", 24, "bold")).grid(
-            row=0, column=0, sticky="w"
-        )
+        ttk.Label(header, text="Історія сканувань", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         AccentButton(header, text="Оновити", command=self.refresh).grid(row=0, column=1)
 
-        filters = ttk.Frame(self, padding=24)
-        filters.grid(row=1, column=0, sticky="ew")
+        filters = ttk.Frame(card, style="Card.TFrame")
+        filters.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         filters.columnconfigure((0, 1, 2, 3), weight=1)
 
         self._box_filter = tk.StringVar()
@@ -727,16 +803,21 @@ class HistoryScreen(Screen):
         self._add_filter(filters, 1, "TTN", self._ttn_filter)
         self._add_filter(filters, 2, "Користувач", self._user_filter)
 
-        ttk.Label(filters, text="Дата (YYYY-MM-DD)").grid(row=0, column=3, sticky="w")
+        ttk.Label(filters, text="Дата (YYYY-MM-DD)", style="MutedSmall.TLabel").grid(row=0, column=3, sticky="w")
         ttk.Entry(filters, textvariable=self._date_filter).grid(row=1, column=3, sticky="ew")
 
-        control_row = ttk.Frame(filters)
+        control_row = ttk.Frame(filters, style="Card.TFrame")
         control_row.grid(row=2, column=0, columnspan=4, sticky="w", pady=(16, 0))
         AccentButton(control_row, text="Застосувати", command=self.apply_filters).pack(side=tk.LEFT)
         ttk.Button(control_row, text="Скинути", command=self._reset_filters).pack(side=tk.LEFT, padx=12)
 
         columns = ("datetime", "user", "box", "ttn")
-        self._table = ttk.Treeview(self, columns=columns, show="headings", height=18)
+        table_frame = ttk.Frame(card, style="Surface.TFrame")
+        table_frame.grid(row=3, column=0, sticky="nsew", pady=(18, 12))
+        table_frame.columnconfigure(0, weight=1)
+        table_frame.rowconfigure(0, weight=1)
+
+        self._table = ttk.Treeview(table_frame, columns=columns, show="headings")
         self._table.heading("datetime", text="Дата та час")
         self._table.heading("user", text="Користувач")
         self._table.heading("box", text="BoxID")
@@ -745,17 +826,17 @@ class HistoryScreen(Screen):
         self._table.column("user", width=160)
         self._table.column("box", width=160)
         self._table.column("ttn", width=160)
-        self._table.grid(row=2, column=0, sticky="nsew", padx=24, pady=(0, 24))
+        self._table.grid(row=0, column=0, sticky="nsew")
 
-        scrollbar = ttk.Scrollbar(self, orient="vertical", command=self._table.yview)
-        scrollbar.grid(row=2, column=1, sticky="ns", pady=(0, 24))
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self._table.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
         self._table.configure(yscrollcommand=scrollbar.set)
 
-        self._status = ttk.Label(self, text="", foreground="#6b7688")
-        self._status.grid(row=3, column=0, sticky="w", padx=24, pady=(0, 24))
+        self._status = ttk.Label(card, text="", style="Status.TLabel")
+        self._status.grid(row=4, column=0, sticky="w")
 
     def _add_filter(self, frame: ttk.Frame, column: int, title: str, var: tk.StringVar) -> None:
-        ttk.Label(frame, text=title).grid(row=0, column=column, sticky="w")
+        ttk.Label(frame, text=title, style="MutedSmall.TLabel").grid(row=0, column=column, sticky="w")
         entry = ttk.Entry(frame, textvariable=var)
         entry.grid(row=1, column=column, sticky="ew", padx=(0 if column == 0 else 12, 0))
         entry.bind("<Return>", lambda _: self.apply_filters())
@@ -837,19 +918,27 @@ class ErrorsScreen(Screen):
     def __init__(self, master: tk.Widget, app: "TrackingDesktopApp") -> None:
         super().__init__(master, app)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
         self._errors: List[Dict[str, Any]] = []
 
-        header = ttk.Frame(self, padding=(24, 18, 24, 0))
+        card = ttk.Frame(self, style="Card.TFrame", padding=24)
+        card.grid(row=0, column=0, sticky="nsew")
+        card.columnconfigure(0, weight=1)
+        card.rowconfigure(1, weight=1)
+
+        header = ttk.Frame(card, style="Card.TFrame")
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, text="Журнал помилок", font=("Segoe UI", 24, "bold")).grid(
-            row=0, column=0, sticky="w"
-        )
+        ttk.Label(header, text="Журнал помилок", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         AccentButton(header, text="Оновити", command=self.refresh).grid(row=0, column=1)
 
         columns = ("datetime", "user", "box", "ttn", "note")
-        self._table = ttk.Treeview(self, columns=columns, show="headings", height=18)
+        table_frame = ttk.Frame(card, style="Surface.TFrame")
+        table_frame.grid(row=1, column=0, sticky="nsew", pady=(18, 12))
+        table_frame.columnconfigure(0, weight=1)
+        table_frame.rowconfigure(0, weight=1)
+
+        self._table = ttk.Treeview(table_frame, columns=columns, show="headings")
         self._table.heading("datetime", text="Дата")
         self._table.heading("user", text="Користувач")
         self._table.heading("box", text="BoxID")
@@ -857,21 +946,21 @@ class ErrorsScreen(Screen):
         self._table.heading("note", text="Опис")
         self._table.column("datetime", width=200)
         self._table.column("note", width=240)
-        self._table.grid(row=1, column=0, sticky="nsew", padx=24, pady=(12, 12))
+        self._table.grid(row=0, column=0, sticky="nsew")
 
-        scrollbar = ttk.Scrollbar(self, orient="vertical", command=self._table.yview)
-        scrollbar.grid(row=1, column=1, sticky="ns", pady=(12, 12))
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self._table.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
         self._table.configure(yscrollcommand=scrollbar.set)
 
-        controls = ttk.Frame(self, padding=(24, 0, 24, 24))
+        controls = ttk.Frame(card, style="Card.TFrame")
         controls.grid(row=2, column=0, sticky="w")
         AccentButton(controls, text="Очистити всі", command=self._clear_all).pack(side=tk.LEFT)
         AccentButton(controls, text="Видалити вибраний", command=self._delete_selected).pack(
             side=tk.LEFT, padx=12
         )
 
-        self._status = ttk.Label(self, text="", foreground="#6b7688")
-        self._status.grid(row=3, column=0, sticky="w", padx=24, pady=(0, 24))
+        self._status = ttk.Label(card, text="", style="Status.TLabel")
+        self._status.grid(row=3, column=0, sticky="w", pady=(12, 0))
 
     def on_show(self) -> None:
         if not self._errors:
@@ -983,48 +1072,48 @@ class StatisticsScreen(Screen):
         self._start = dt.datetime(now.year, now.month, 1)
         self._end = now
 
-        container = ttk.Frame(self, padding=24)
-        container.grid(row=0, column=0, sticky="nsew")
-        container.columnconfigure(0, weight=1)
+        card = ttk.Frame(self, style="Card.TFrame", padding=24)
+        card.grid(row=0, column=0, sticky="nsew")
+        card.columnconfigure(0, weight=1)
 
-        header = ttk.Frame(container)
+        header = ttk.Frame(card, style="Card.TFrame")
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, text="Статистика", font=("Segoe UI", 24, "bold")).grid(
-            row=0, column=0, sticky="w"
-        )
+        ttk.Label(header, text="Статистика", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         AccentButton(header, text="Оновити", command=self.refresh).grid(row=0, column=1)
 
-        filters = ttk.LabelFrame(container, text="Період", padding=18)
+        filters = ttk.LabelFrame(card, text="Період", padding=18, style="Relise.TLabelframe")
         filters.grid(row=1, column=0, sticky="ew", pady=(18, 12))
         filters.columnconfigure(1, weight=1)
 
         self._start_var = tk.StringVar(value=self._start.strftime("%Y-%m-%d %H:%M"))
         self._end_var = tk.StringVar(value=self._end.strftime("%Y-%m-%d %H:%M"))
 
-        ttk.Label(filters, text="Початок (YYYY-MM-DD HH:MM)").grid(row=0, column=0, sticky="w")
+        ttk.Label(filters, text="Початок (YYYY-MM-DD HH:MM)", style="MutedSmall.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Entry(filters, textvariable=self._start_var).grid(row=0, column=1, sticky="ew")
-        ttk.Label(filters, text="Кінець (YYYY-MM-DD HH:MM)").grid(row=1, column=0, sticky="w", pady=(12, 0))
+        ttk.Label(filters, text="Кінець (YYYY-MM-DD HH:MM)", style="MutedSmall.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(12, 0)
+        )
         ttk.Entry(filters, textvariable=self._end_var).grid(row=1, column=1, sticky="ew", pady=(12, 0))
 
-        filter_buttons = ttk.Frame(filters)
+        filter_buttons = ttk.Frame(filters, style="Surface.TFrame")
         filter_buttons.grid(row=2, column=0, columnspan=2, sticky="w", pady=(12, 0))
         AccentButton(filter_buttons, text="Застосувати", command=self._apply_filters).pack(side=tk.LEFT)
         ttk.Button(filter_buttons, text="Поточний місяць", command=self._reset_period).pack(side=tk.LEFT, padx=12)
 
-        self._summary = ttk.LabelFrame(container, text="Ключові показники", padding=18)
+        self._summary = ttk.LabelFrame(card, text="Ключові показники", padding=18, style="Relise.TLabelframe")
         self._summary.grid(row=2, column=0, sticky="ew", pady=(12, 12))
         self._summary.columnconfigure((0, 1, 2, 3), weight=1)
 
-        self._leaders = ttk.LabelFrame(container, text="Лідери", padding=18)
+        self._leaders = ttk.LabelFrame(card, text="Лідери", padding=18, style="Relise.TLabelframe")
         self._leaders.grid(row=3, column=0, sticky="ew", pady=(12, 12))
         self._leaders.columnconfigure((0, 1), weight=1)
 
-        self._daily = ttk.LabelFrame(container, text="Добова активність", padding=18)
+        self._daily = ttk.LabelFrame(card, text="Добова активність", padding=18, style="Relise.TLabelframe")
         self._daily.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         self._daily.columnconfigure(0, weight=1)
 
-        self._status = ttk.Label(container, text="", foreground="#6b7688")
+        self._status = ttk.Label(card, text="", style="Status.TLabel")
         self._status.grid(row=5, column=0, sticky="w", pady=(16, 0))
 
     def on_show(self) -> None:
@@ -1179,7 +1268,7 @@ class AdminPanel(tk.Toplevel):
         self.token = admin_token
         self.title("Керування користувачами")
         self.geometry("1000x680")
-        self.configure(bg="#f4f6fb")
+        self.configure(bg=PALETTE["canvas"])
 
         self._pending: List[Dict[str, Any]] = []
         self._users: List[Dict[str, Any]] = []
@@ -1188,31 +1277,34 @@ class AdminPanel(tk.Toplevel):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-        header = ttk.Frame(self, padding=18)
-        header.grid(row=0, column=0, sticky="ew")
+        header = ttk.Frame(self, padding=24, style="Header.TFrame")
+        header.grid(row=0, column=0, sticky="ew", padx=24, pady=(24, 12))
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, text="Панель адміністратора", font=("Segoe UI", 20, "bold")).grid(
+        ttk.Label(header, text="Панель адміністратора", style="CardTitle.TLabel").grid(
             row=0, column=0, sticky="w"
         )
         AccentButton(header, text="Оновити", command=self._refresh).grid(row=0, column=1)
 
-        splitter = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
-        splitter.grid(row=1, column=0, sticky="nsew", padx=18, pady=(0, 18))
+        content = ttk.Frame(self, style="Screen.TFrame")
+        content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 18))
+        content.columnconfigure(0, weight=1)
+        content.columnconfigure(1, weight=1)
+        content.rowconfigure(0, weight=1)
 
-        self._pending_frame = ttk.Labelframe(splitter, text="Заявки", padding=12)
+        self._pending_frame = ttk.LabelFrame(content, text="Заявки", padding=18, style="Relise.TLabelframe")
+        self._pending_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         self._pending_frame.columnconfigure(0, weight=1)
-        splitter.add(self._pending_frame, weight=1)
 
-        self._users_frame = ttk.Labelframe(splitter, text="Користувачі", padding=12)
+        self._users_frame = ttk.LabelFrame(content, text="Користувачі", padding=18, style="Relise.TLabelframe")
+        self._users_frame.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
         self._users_frame.columnconfigure(0, weight=1)
-        splitter.add(self._users_frame, weight=2)
 
-        self._passwords_frame = ttk.Labelframe(self, text="Паролі ролей", padding=12)
-        self._passwords_frame.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 18))
+        self._passwords_frame = ttk.LabelFrame(self, text="Паролі ролей", padding=18, style="Relise.TLabelframe")
+        self._passwords_frame.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 24))
         self._passwords_frame.columnconfigure(0, weight=1)
 
-        self._status = ttk.Label(self, text="", foreground="#6b7688")
-        self._status.grid(row=3, column=0, sticky="w", padx=18, pady=(0, 18))
+        self._status = ttk.Label(self, text="", style="Status.TLabel")
+        self._status.grid(row=3, column=0, sticky="w", padx=24, pady=(0, 24))
 
         self._refresh()
 
@@ -1506,15 +1598,222 @@ class TrackingDesktopApp(tk.Tk):
         base_font = ("Segoe UI", 10)
         self.option_add("*Font", base_font)
         self.style.theme_use("clam")
-        self.style.configure("TFrame", background="#f4f6fb")
-        self.style.configure("Card.TFrame", background="#ffffff", relief="flat")
-        self.style.configure("Navigation.TFrame", background="#ffffff")
-        self.style.configure("Accent.TButton", background="#1a73e8", foreground="#ffffff")
+        self.configure(bg=PALETTE["canvas"])
+
+        # base surfaces
+        self.style.configure("TFrame", background=PALETTE["surface"])
+        self.style.configure("Screen.TFrame", background=PALETTE["canvas"])
+        self.style.configure("Surface.TFrame", background=PALETTE["surface"])
+        self.style.configure("Card.TFrame", background=PALETTE["surface"], borderwidth=0, relief="flat")
+        self.style.configure("Navigation.TFrame", background=PALETTE["nav_bg"])
+        self.style.configure("Header.TFrame", background=PALETTE["surface"], borderwidth=0)
+        self.style.configure("Footer.TFrame", background=PALETTE["surface"], borderwidth=0)
+        self.style.configure("Hero.TFrame", background=PALETTE["hero_bg"])
+
+        # typography
+        self.style.configure("TLabel", background=PALETTE["surface"], foreground=PALETTE["text"])
+        self.style.configure("Muted.TLabel", background=PALETTE["surface"], foreground=PALETTE["muted"])
+        self.style.configure(
+            "MutedSmall.TLabel",
+            background=PALETTE["surface"],
+            foreground=PALETTE["muted"],
+            font=("Segoe UI", 9),
+        )
+        self.style.configure(
+            "CardTitle.TLabel",
+            background=PALETTE["surface"],
+            foreground=PALETTE["text"],
+            font=("Segoe UI", 18, "bold"),
+        )
+        self.style.configure(
+            "Status.TLabel",
+            background=PALETTE["surface"],
+            foreground=PALETTE["muted"],
+        )
+        self.style.configure(
+            "HeroBrand.TLabel",
+            background=PALETTE["hero_bg"],
+            foreground=PALETTE["hero_text"],
+            font=("Segoe UI", 30, "bold"),
+        )
+        self.style.configure(
+            "HeroSubtitle.TLabel",
+            background=PALETTE["hero_bg"],
+            foreground=PALETTE["hero_text"],
+            font=("Segoe UI", 13),
+        )
+        self.style.configure(
+            "HeroBullet.TLabel",
+            background=PALETTE["hero_bg"],
+            foreground=PALETTE["hero_text"],
+            font=("Segoe UI", 11),
+        )
+        self.style.configure(
+            "HeroBadge.TLabel",
+            background=PALETTE["hero_bg"],
+            foreground=PALETTE["hero_text"],
+            font=("Segoe UI", 10, "bold"),
+            padding=(10, 6),
+        )
+        self.style.configure(
+            "NavBrand.TLabel",
+            background=PALETTE["nav_bg"],
+            foreground="#ffffff",
+            font=("Segoe UI", 16, "bold"),
+        )
+        self.style.configure(
+            "NavSection.TLabel",
+            background=PALETTE["nav_bg"],
+            foreground="#8da2c6",
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.style.configure(
+            "NavFooter.TLabel",
+            background=PALETTE["nav_bg"],
+            foreground="#9fb4d8",
+            font=("Segoe UI", 9),
+        )
+        self.style.configure(
+            "HeaderUser.TLabel",
+            background=PALETTE["surface"],
+            foreground=PALETTE["text"],
+            font=("Segoe UI", 16, "bold"),
+        )
+        self.style.configure(
+            "HeaderRole.TLabel",
+            background=PALETTE["surface"],
+            foreground=PALETTE["muted"],
+        )
+
+        # buttons
+        self.style.configure(
+            "TButton",
+            font=("Segoe UI", 10, "bold"),
+            padding=(14, 10),
+            borderwidth=0,
+            background=PALETTE["surface_alt"],
+            foreground=PALETTE["text"],
+        )
+        self.style.map(
+            "TButton",
+            background=[("active", PALETTE["surface"]), ("pressed", PALETTE["surface"])],
+        )
+        self.style.configure(
+            "Accent.TButton",
+            background=PALETTE["accent"],
+            foreground="#ffffff",
+            borderwidth=0,
+            focuscolor=PALETTE["accent"],
+        )
         self.style.map(
             "Accent.TButton",
-            background=[("active", "#1666c1")],
-            foreground=[("disabled", "#e0e4ec")],
+            background=[("active", PALETTE["accent_hover"]), ("pressed", PALETTE["accent_active"])],
+            foreground=[("disabled", "#cdd4e0")],
         )
+        self.style.configure(
+            "Nav.TButton",
+            background=PALETTE["nav_bg"],
+            foreground="#bcd2f8",
+            anchor="w",
+            padding=(18, 12),
+            borderwidth=0,
+            focuscolor=PALETTE["nav_bg"],
+        )
+        self.style.map(
+            "Nav.TButton",
+            background=[("active", PALETTE["nav_hover"]), ("pressed", PALETTE["nav_active"])],
+            foreground=[("active", "#ffffff"), ("pressed", "#ffffff")],
+        )
+        self.style.configure(
+            "NavActive.TButton",
+            background=PALETTE["nav_active"],
+            foreground="#ffffff",
+            anchor="w",
+            padding=(18, 12),
+            borderwidth=0,
+            focuscolor=PALETTE["nav_active"],
+        )
+        self.style.map(
+            "NavActive.TButton",
+            background=[("active", PALETTE["nav_active"]), ("pressed", PALETTE["nav_active"])],
+            foreground=[("active", "#ffffff"), ("pressed", "#ffffff")],
+        )
+
+        # inputs
+        self.style.configure(
+            "TEntry",
+            fieldbackground=PALETTE["surface"],
+            insertcolor=PALETTE["text"],
+            foreground=PALETTE["text"],
+            bordercolor=PALETTE["surface_alt"],
+            lightcolor=PALETTE["accent"],
+            darkcolor=PALETTE["surface_alt"],
+            borderwidth=1,
+        )
+        self.style.map(
+            "TEntry",
+            fieldbackground=[("disabled", PALETTE["surface_alt"])],
+            bordercolor=[("focus", PALETTE["accent"])],
+        )
+
+        # tables
+        self.style.configure(
+            "Treeview",
+            background=PALETTE["surface"],
+            fieldbackground=PALETTE["surface"],
+            foreground=PALETTE["text"],
+            rowheight=30,
+            borderwidth=0,
+        )
+        self.style.map(
+            "Treeview",
+            background=[("selected", PALETTE["accent"])],
+            foreground=[("selected", "#ffffff")],
+        )
+        self.style.configure(
+            "Treeview.Heading",
+            background=PALETTE["surface_alt"],
+            foreground=PALETTE["muted"],
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+        )
+
+        # notebook
+        self.style.configure(
+            "Relise.TNotebook",
+            background=PALETTE["surface"],
+            borderwidth=0,
+            tabposition="n",
+        )
+        self.style.configure(
+            "Relise.TNotebook.Tab",
+            background=PALETTE["surface_alt"],
+            padding=(18, 10),
+            font=("Segoe UI", 10, "bold"),
+        )
+        self.style.map(
+            "Relise.TNotebook.Tab",
+            background=[("selected", PALETTE["surface"]), ("active", PALETTE["surface"])],
+            foreground=[("selected", PALETTE["accent"]), ("!selected", PALETTE["muted"])],
+        )
+
+        # labelframes
+        self.style.configure(
+            "Relise.TLabelframe",
+            background=PALETTE["surface"],
+            foreground=PALETTE["muted"],
+            borderwidth=0,
+            relief="flat",
+            padding=12,
+        )
+        self.style.configure(
+            "Relise.TLabelframe.Label",
+            background=PALETTE["surface"],
+            foreground=PALETTE["muted"],
+            font=("Segoe UI", 11, "bold"),
+        )
+        self.style.configure("TLabelframe", background=PALETTE["surface"])
+        self.style.configure("TLabelframe.Label", background=PALETTE["surface"], foreground=PALETTE["muted"])
 
     # ---- layout ---------------------------------------------------------
     def _show_login(self) -> None:
@@ -1537,42 +1836,54 @@ class TrackingDesktopApp(tk.Tk):
             self._login_screen.destroy()
             self._login_screen = None
 
-        self._app_frame = ttk.Frame(self)
+        self._app_frame = ttk.Frame(self, style="Screen.TFrame")
         self._app_frame.pack(fill="both", expand=True)
         self._app_frame.columnconfigure(1, weight=1)
         self._app_frame.rowconfigure(1, weight=1)
 
-        nav = ttk.Frame(self._app_frame, padding=24, style="Navigation.TFrame")
-        nav.grid(row=0, column=0, rowspan=2, sticky="ns")
-        ttk.Label(nav, text="Навігація", font=("Segoe UI", 13, "bold")).pack(anchor="w")
-        ttk.Separator(nav, orient="horizontal").pack(fill="x", pady=12)
+        nav = ttk.Frame(self._app_frame, padding=28, style="Navigation.TFrame")
+        nav.grid(row=0, column=0, rowspan=3, sticky="ns")
+        nav.columnconfigure(0, weight=1)
 
-        self._nav_buttons: Dict[str, AccentButton] = {}
-        self._add_nav_button(nav, "Сканер", "scanner")
-        self._add_nav_button(nav, "Історія", "history")
-        self._add_nav_button(nav, "Помилки", "errors")
-        self._statistics_button = self._add_nav_button(nav, "Статистика", "statistics")
-        ttk.Separator(nav, orient="horizontal").pack(fill="x", pady=12)
-        self._admin_button = AccentButton(nav, text="Адмін панель", command=self._open_admin_panel_from_app)
-        self._admin_button.pack(fill="x", pady=4)
+        ttk.Label(nav, text="RELlSE", style="NavBrand.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(nav, text="Логістика", style="NavFooter.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 20))
 
-        header = ttk.Frame(self._app_frame, padding=(24, 18))
+        ttk.Label(nav, text="Операції", style="NavSection.TLabel").grid(row=2, column=0, sticky="w", pady=(12, 6))
+
+        self._nav_buttons: Dict[str, NavButton] = {}
+        self._add_nav_button(nav, "Сканер", "scanner", row=3)
+        self._add_nav_button(nav, "Історія", "history", row=4)
+        self._add_nav_button(nav, "Помилки", "errors", row=5)
+        self._statistics_button = self._add_nav_button(nav, "Статистика", "statistics", row=6)
+
+        ttk.Label(nav, text="Адміністрування", style="NavSection.TLabel").grid(
+            row=7, column=0, sticky="w", pady=(24, 6)
+        )
+        self._admin_button = NavButton(nav, text="Адмін панель", command=self._open_admin_panel_from_app)
+        self._admin_button.grid(row=8, column=0, sticky="ew", pady=(0, 4))
+
+        nav.rowconfigure(9, weight=1)
+        ttk.Label(
+            nav,
+            text="Синхронізовано з мобільним застосунком",
+            style="NavFooter.TLabel",
+        ).grid(row=10, column=0, sticky="sw", pady=(40, 0))
+
+        header = ttk.Frame(self._app_frame, padding=(32, 24), style="Header.TFrame")
         header.grid(row=0, column=1, sticky="ew")
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, textvariable=self.user_label, font=("Segoe UI", 14, "bold")).grid(
-            row=0, column=0, sticky="w"
-        )
-        ttk.Label(header, textvariable=self.role_label, foreground="#6b7688").grid(row=1, column=0, sticky="w")
-        ttk.Button(header, text="Вийти", command=self.logout).grid(row=0, column=1, rowspan=2, sticky="e")
+        ttk.Label(header, textvariable=self.user_label, style="HeaderUser.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(header, textvariable=self.role_label, style="HeaderRole.TLabel").grid(row=1, column=0, sticky="w")
+        AccentButton(header, text="Вийти", command=self.logout).grid(row=0, column=1, rowspan=2, sticky="e")
 
-        self._screen_container = ttk.Frame(self._app_frame)
+        self._screen_container = ttk.Frame(self._app_frame, style="Screen.TFrame")
         self._screen_container.grid(row=1, column=1, sticky="nsew")
         self._screen_container.columnconfigure(0, weight=1)
         self._screen_container.rowconfigure(0, weight=1)
 
-        footer = ttk.Frame(self._app_frame, padding=(24, 12))
+        footer = ttk.Frame(self._app_frame, padding=(32, 16), style="Footer.TFrame")
         footer.grid(row=2, column=0, columnspan=2, sticky="ew")
-        ttk.Label(footer, textvariable=self._status_var, foreground="#6b7688").grid(row=0, column=0, sticky="w")
+        ttk.Label(footer, textvariable=self._status_var, style="Status.TLabel").grid(row=0, column=0, sticky="w")
 
         self._screens = {
             "scanner": ScannerScreen(self._screen_container, self),
@@ -1586,9 +1897,11 @@ class TrackingDesktopApp(tk.Tk):
         self._update_user_labels()
         self._update_access_controls()
 
-    def _add_nav_button(self, parent: ttk.Frame, label: str, screen: str) -> AccentButton:
-        btn = AccentButton(parent, text=label, command=lambda s=screen: self.show_screen(s))
-        btn.pack(fill="x", pady=4)
+    def _add_nav_button(
+        self, parent: ttk.Frame, label: str, screen: str, *, row: int
+    ) -> NavButton:
+        btn = NavButton(parent, text=label, command=lambda s=screen: self.show_screen(s))
+        btn.grid(row=row, column=0, sticky="ew", pady=2)
         self._nav_buttons[screen] = btn
         return btn
 
@@ -1628,7 +1941,13 @@ class TrackingDesktopApp(tk.Tk):
             else:
                 frame.lower()
         self._current_screen = name
+        self._set_active_nav(name)
         self._screens[name].on_show()
+
+    def _set_active_nav(self, name: str) -> None:
+        for key, button in self._nav_buttons.items():
+            style = "NavActive.TButton" if key == name else "Nav.TButton"
+            button.configure(style=style)
 
     # ---- session management ---------------------------------------------
     def on_login_success(self, profile: UserProfile) -> None:
