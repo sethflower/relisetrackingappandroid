@@ -1204,13 +1204,13 @@ class LoginFrame(BaseFrame):
 
         tk.Label(
             card,
-            text="Relise Tracking",
+            text="1-2-3",
             font=("Segoe UI", 32, "bold"),
             fg=TEXT_PRIMARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
 
-        self.subtitle_var = tk.StringVar(value="Единое рабочее место оператора")
+        self.subtitle_var = tk.StringVar(value="Будь-ласка увійдіть у систему")
         tk.Label(
             card,
             textvariable=self.subtitle_var,
@@ -1232,7 +1232,7 @@ class LoginFrame(BaseFrame):
         links.grid(row=3, column=0, sticky="ew", pady=(32, 0))
         links.columnconfigure(0, weight=1)
 
-        self.mode_link_text = tk.StringVar(value="Отправить заявку на доступ")
+        self.mode_link_text = tk.StringVar(value="Відправити заявку на доступ")
         self.mode_link = tk.Button(
             links,
             textvariable=self.mode_link_text,
@@ -1281,8 +1281,8 @@ class LoginFrame(BaseFrame):
 
         padding = max(int(min(width, height) * 0.1), 48)
         max_width = width - padding * 2
-        heading = "Оцифруйте операции склада."
-        subheading = "Работайте на ноутбуке, моноблоке или планшете"
+        heading = "TrackingApp 2.0 "
+        subheading = "Версія для Windows by DimonVR"
 
         self.hero_canvas.create_text(
             padding,
@@ -1346,7 +1346,7 @@ class LoginFrame(BaseFrame):
 
         self.login_button = ttk.Button(
             frame,
-            text="Войти в систему",
+            text="Увійти в систему",
             style="Primary.TButton",
             command=self.login,
         )
@@ -1411,7 +1411,7 @@ class LoginFrame(BaseFrame):
 
         self.register_button = ttk.Button(
             frame,
-            text="Отправить заявку",
+            text="Відправити заявку",
             style="Primary.TButton",
             command=self.register,
         )
@@ -1433,8 +1433,8 @@ class LoginFrame(BaseFrame):
             self.login_form.grid(row=0, column=0, sticky="nsew")
             self.register_message_var.set("")
             self.after(100, self.login_surname_entry.focus_set)
-            self.subtitle_var.set("Единое рабочее место оператора")
-            self.mode_link_text.set("Отправить заявку на доступ")
+            self.subtitle_var.set("Будь-ласка увійдіть в систему")
+            self.mode_link_text.set("Відправити заявку на доступ")
             self.mode_link.configure(command=lambda: self.set_mode("register"))
         else:
             self.login_form.grid_forget()
@@ -1442,7 +1442,7 @@ class LoginFrame(BaseFrame):
             self.login_error_var.set("")
             self.after(100, self.register_surname_entry.focus_set)
             self.subtitle_var.set("Надішліть заявку, щоб отримати доступ")
-            self.mode_link_text.set("Вернутися до входу")
+            self.mode_link_text.set("Повернутися до входу")
             self.mode_link.configure(command=lambda: self.set_mode("login"))
 
     @staticmethod
@@ -1534,7 +1534,7 @@ class LoginFrame(BaseFrame):
         if loading:
             self.register_button.configure(text="Надсилання...", state="disabled")
         else:
-            self.register_button.configure(text="Отправить заявку", state="normal")
+            self.register_button.configure(text="Відправити заявку", state="normal")
 
     def _set_register_feedback(self, message: str, success: bool) -> None:
         self.register_message_var.set(message)
@@ -2338,14 +2338,14 @@ class ScannerFrame(BaseFrame):
         brand.grid(row=0, column=0, sticky="w")
         tk.Label(
             brand,
-            text="TrackingApp",
+            text="1-2-3",
             font=("Segoe UI", 28, "bold"),
             fg=TEXT_PRIMARY,
             bg=CARD_BG,
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             brand,
-            text="Корпоративна система відстеження",
+            text="Система фіксації BoxID до ТТН ",
             font=("Segoe UI", 12),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
@@ -2455,7 +2455,7 @@ class ScannerFrame(BaseFrame):
 
         self.ttn_group, self.ttn_entry = self._create_input_group(
             card,
-            title="Товарно-транспортна накладна",
+            title="ТТН",
             variable=self.ttn_var,
             row=2,
         )
@@ -3748,7 +3748,7 @@ class ErrorsFrame(BaseFrame):
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             branding,
-            text="Аналізуйте проблеми синхронізації та очищайте журнал",
+            text="Фіксація невідповідностей",
             font=("Segoe UI", 12),
             fg=TEXT_SECONDARY,
             bg=CARD_BG,
