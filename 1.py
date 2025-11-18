@@ -2844,13 +2844,7 @@ class HistoryFrame(BaseFrame):
         ttk.Button(buttons, text="Скинути", command=self.clear_filters, style="Secondary.TButton").grid(row=0, column=3, padx=4)
         ttk.Button(buttons, text="Оновити", command=self.fetch_history, style="Secondary.TButton").grid(row=0, column=4, padx=4)
         if self.role_info["can_clear_history"]:
-            ttk.Button(
-                buttons,
-                text="Видалити запис",
-                command=self.delete_selected_record,
-                style="Secondary.TButton",
-            ).grid(row=0, column=5, padx=4)
-            ttk.Button(buttons, text="Очистити", command=self.clear_history, style="Secondary.TButton").grid(row=0, column=6, padx=4)
+            ttk.Button(buttons, text="Очистити", command=self.clear_history, style="Secondary.TButton").grid(row=0, column=5, padx=4)
 
         status = tk.Frame(filters, bg=CARD_BG)
         status.grid(row=1, column=0, columnspan=2, sticky="w", pady=(12, 0))
