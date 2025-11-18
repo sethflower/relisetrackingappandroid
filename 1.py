@@ -8,7 +8,6 @@ import threading
 from collections import defaultdict
 from dataclasses import dataclass, asdict, fields
 from datetime import datetime, date, time as dtime, timezone
-from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -27,6 +26,7 @@ except ImportError as exc:  # pragma: no cover - handled at runtime
 API_BASE = "https://tracking-api-b4jb.onrender.com"
 STATE_PATH = Path(__file__).with_name("tracking_app_state.json")
 QUEUE_PATH = Path(__file__).with_name("offline_queue.json")
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "images" / "logo.png"
 
 # Design constants for corporate-style UI
 PRIMARY_BG = "#0f172a"
@@ -45,9 +45,6 @@ CARD_SHADOW = "#dce6ff"
 # Базовый "дизайн-размер" окна
 BASE_WIDTH = 1920
 BASE_HEIGHT = 1080
-
-KYIV_TZ = ZoneInfo("Europe/Kyiv")
-
 
 def compute_scale(screen_w: int, screen_h: int) -> float:
     """
@@ -475,13 +472,11 @@ def parse_api_datetime(value: Optional[str]) -> Optional[datetime]:
         dt = datetime.fromisoformat(cleaned)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(KYIV_TZ)
+        return dt
     except ValueError:
         try:
-            return (
-                datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-                .replace(tzinfo=timezone.utc)
-                .astimezone(KYIV_TZ)
+            return datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=timezone.utc
             )
         except ValueError:
             return None
@@ -1154,10 +1149,12 @@ class LoginFrame(BaseFrame):
         self.register_loading = False
 
         self.hero_canvas: Optional[tk.Canvas] = None
+        self.logo_image: Optional[tk.PhotoImage] = None
 
         self._build_layout()
 
     def _build_layout(self) -> None:
+        self._load_logo_image()
         self.configure(bg=APP_BACKGROUND)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -1265,6 +1262,15 @@ class LoginFrame(BaseFrame):
 
         self.set_mode(self.mode.get())
 
+    def _load_logo_image(self) -> None:
+        if LOGO_PATH.exists():
+            try:
+                self.logo_image = tk.PhotoImage(file=str(LOGO_PATH))
+            except tk.TclError:
+                self.logo_image = None
+        else:
+            self.logo_image = None
+
     def _draw_hero_panel(self, event: Optional[tk.Event] = None) -> None:
         if not self.hero_canvas:
             return
@@ -1274,34 +1280,54 @@ class LoginFrame(BaseFrame):
             color_to=HERO_GRADIENT_END,
         )
         self.hero_canvas.delete("hero-text")
+        self.hero_canvas.delete("hero-image")
         width = self.hero_canvas.winfo_width()
         height = self.hero_canvas.winfo_height()
         if width <= 0 or height <= 0:
             return
 
         padding = max(int(min(width, height) * 0.1), 48)
-        max_width = width - padding * 2
+        center_x = width // 2
+        available_width = max(width - padding * 2, 200)
+        current_y = padding
+        if self.logo_image:
+            img_height = self.logo_image.height()
+            self.hero_canvas.create_image(
+                center_x,
+                current_y,
+                anchor="n",
+                image=self.logo_image,
+                tags="hero-image",
+            )
+            current_y += img_height + 48
         heading = "TrackingApp 2.0 "
         subheading = "Версія для Windows by DimonVR"
 
-        self.hero_canvas.create_text(
-            padding,
-            padding,
-            anchor="nw",
-            width=max_width,
+        heading_item = self.hero_canvas.create_text(
+            center_x,
+            current_y,
+            anchor="n",
+            width=available_width,
             text=heading,
             font=("Segoe UI", 34, "bold"),
             fill="#ffffff",
+            justify="center",
             tags="hero-text",
         )
+        heading_bbox = self.hero_canvas.bbox(heading_item)
+        if heading_bbox:
+            current_y = heading_bbox[3] + 24
+        else:
+            current_y += 96
         self.hero_canvas.create_text(
-            padding,
-            padding + 120,
-            anchor="nw",
-            width=max_width,
+            center_x,
+            current_y,
+            anchor="n",
+            width=available_width,
             text=subheading,
             font=("Segoe UI", 20),
             fill="#e2f3ff",
+            justify="center",
             tags="hero-text",
         )
 
@@ -1460,10 +1486,18 @@ class LoginFrame(BaseFrame):
 
     def _set_login_loading(self, loading: bool) -> None:
         self.login_loading = loading
-        if loading:
-            self.login_button.configure(text="Зачекайте...", state="disabled")
-        else:
-            self.login_button.configure(text="Войти в систему", state="normal")
+        button = getattr(self, "login_button", None)
+        if not button:
+            return
+        try:
+            if loading:
+                button.configure(text="Зачекайте...", state="disabled")
+            else:
+                button.configure(text="Увійти в систему", state="normal")
+        except tk.TclError:
+            # Віджет вже знищено (наприклад, після переходу з екрана входу)
+            # і повторна зміна стану не потрібна.
+            return
 
     def login(self) -> None:
         if self.login_loading:
@@ -1915,19 +1949,19 @@ class AdminPanelWindow(tk.Toplevel):
     ) -> None:
         self.pending_users = pending
         self.managed_users = users
-        self.role_passwords = {role: passwords.get(role, "") for role in UserRole}
+        self.role_passwords = {UserRole.ADMIN: passwords.get(UserRole.ADMIN, "")}
         self._populate_pending()
         self._populate_users()
         self._populate_passwords()
         self.status_var.set(
-            f"Запити: {len(pending)} | Користувачі: {len(users)} | Ролі: {len(passwords)}"
+            f"Запити: {len(pending)} | Користувачі: {len(users)} | Ролі: {len(self.role_passwords)}"
         )
 
     @staticmethod
     def _format_datetime(value: Optional[datetime]) -> str:
         if not value:
             return "—"
-        return value.astimezone(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+        return value.strftime("%d.%m.%Y %H:%M")
 
     def _populate_pending(self) -> None:
         for row in self.pending_tree.get_children():
@@ -2310,6 +2344,7 @@ class ScannerFrame(BaseFrame):
         self.is_admin = self.role_info.get("can_clear_history") and self.role_info.get(
             "can_clear_errors"
         )
+        self.is_view_only = self.role_info.get("role") == UserRole.VIEWER
 
         self.configure(bg=APP_BACKGROUND)
         shell = tk.Frame(self, bg=APP_BACKGROUND, padx=36, pady=36)
@@ -2473,12 +2508,13 @@ class ScannerFrame(BaseFrame):
             command=self.to_next,
         )
         self.primary_button.grid(row=0, column=0, sticky="ew", padx=(0, 12))
-        ttk.Button(
+        self.reset_button = ttk.Button(
             actions,
             text="Скинути поля",
             style="Secondary.TButton",
             command=self.reset_fields,
-        ).grid(row=0, column=1, sticky="ew")
+        )
+        self.reset_button.grid(row=0, column=1, sticky="ew")
 
         status_panel = tk.Frame(card, bg="#f8fafc", padx=20, pady=20)
         status_panel.grid(row=4, column=0, sticky="ew", pady=(40, 0))
@@ -2494,9 +2530,23 @@ class ScannerFrame(BaseFrame):
         ).grid(row=0, column=0, sticky="ew")
 
         self.stage = "box"
-        self.box_entry.focus_set()
+        self._apply_role_permissions()
+        if not self.is_view_only:
+            self.box_entry.focus_set()
         self.check_connectivity()
         OfflineQueue.sync_pending(self.app.state_data.token or "")
+
+    def _apply_role_permissions(self) -> None:
+        if not self.is_view_only:
+            return
+        self.box_entry.configure(state="disabled")
+        self.ttn_entry.configure(state="disabled")
+        self.primary_button.configure(state="disabled")
+        self.reset_button.configure(state="disabled")
+        self.step_title_var.set("Режим перегляду")
+        self.status_var.set(
+            "Ваш обліковий запис має рівень \"Перегляд\". Введення BoxID та ТТН недоступне."
+        )
 
     def _create_input_group(
         self,
@@ -2544,6 +2594,8 @@ class ScannerFrame(BaseFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def to_next(self) -> None:
+        if self.is_view_only:
+            return
         if self.stage != "box":
             return
         value = self.box_var.get().strip()
@@ -2559,6 +2611,8 @@ class ScannerFrame(BaseFrame):
         self.ttn_entry.focus_set()
 
     def reset_fields(self) -> None:
+        if self.is_view_only:
+            return
         self.box_var.set("")
         self.ttn_var.set("")
         self.stage = "box"
@@ -2570,6 +2624,8 @@ class ScannerFrame(BaseFrame):
         self.box_entry.focus_set()
 
     def submit(self) -> None:
+        if self.is_view_only:
+            return
         if self.stage != "ttn":
             return
         boxid = self.box_var.get().strip()
@@ -2788,7 +2844,13 @@ class HistoryFrame(BaseFrame):
         ttk.Button(buttons, text="Скинути", command=self.clear_filters, style="Secondary.TButton").grid(row=0, column=3, padx=4)
         ttk.Button(buttons, text="Оновити", command=self.fetch_history, style="Secondary.TButton").grid(row=0, column=4, padx=4)
         if self.role_info["can_clear_history"]:
-            ttk.Button(buttons, text="Очистити", command=self.clear_history, style="Secondary.TButton").grid(row=0, column=5, padx=4)
+            ttk.Button(
+                buttons,
+                text="Видалити запис",
+                command=self.delete_selected_record,
+                style="Secondary.TButton",
+            ).grid(row=0, column=5, padx=4)
+            ttk.Button(buttons, text="Очистити", command=self.clear_history, style="Secondary.TButton").grid(row=0, column=6, padx=4)
 
         status = tk.Frame(filters, bg=CARD_BG)
         status.grid(row=1, column=0, columnspan=2, sticky="w", pady=(12, 0))
@@ -2825,12 +2887,16 @@ class HistoryFrame(BaseFrame):
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
-        
+
         self.attach_tree_copy_menu(self.tree)
+
+        if self.role_info["can_clear_history"]:
+            self.tree.bind("<Delete>", self.delete_selected_record)
 
 
         self.records: List[Dict[str, Any]] = []
         self.filtered: List[Dict[str, Any]] = []
+        self.tree_records: Dict[str, Dict[str, Any]] = {}
 
         self.fetch_history()
 
@@ -2952,10 +3018,11 @@ class HistoryFrame(BaseFrame):
         self.filtered = filtered
         for row in self.tree.get_children():
             self.tree.delete(row)
+        self.tree_records = {}
         for item in filtered:
             dt = parse_api_datetime(item.get("datetime"))
             dt_txt = dt.strftime("%d.%m.%Y %H:%M:%S") if dt else item.get("datetime", "")
-            self.tree.insert(
+            item_id = self.tree.insert(
                 "",
                 "end",
                 values=(
@@ -2966,6 +3033,71 @@ class HistoryFrame(BaseFrame):
                     item.get("note", ""),
                 ),
             )
+            self.tree_records[item_id] = item
+
+    def delete_selected_record(self, event: Optional[tk.Event] = None) -> None:
+        if not self.role_info.get("can_clear_history"):
+            return
+        item_id = self.tree.focus()
+        if not item_id:
+            if event is None:
+                messagebox.showinfo("Видалення", "Оберіть запис у таблиці")
+            return
+        record = self.tree_records.get(item_id)
+        if not record:
+            messagebox.showerror("Видалення", "Не вдалося визначити запис")
+            return
+        raw_id = record.get("id")
+        try:
+            record_id = int(float(raw_id))
+        except (TypeError, ValueError):
+            messagebox.showerror("Видалення", "Для цього запису відсутній ідентифікатор")
+            return
+        boxid = record.get("boxid") or "—"
+        ttn = record.get("ttn") or "—"
+        if not messagebox.askyesno(
+            "Підтвердження",
+            f"Видалити запис #{record_id}?\nBoxID: {boxid} | TTN: {ttn}",
+        ):
+            return
+        token = self.app.state_data.token
+        if not token:
+            return
+
+        def worker() -> None:
+            try:
+                response = requests.delete(
+                    f"{API_BASE}/delete_tracking/{record_id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    def update() -> None:
+                        updated: List[Dict[str, Any]] = []
+                        for item in self.records:
+                            try:
+                                item_id_value = int(float(item.get("id")))
+                            except (TypeError, ValueError):
+                                updated.append(item)
+                                continue
+                            if item_id_value != record_id:
+                                updated.append(item)
+                        self.records = updated
+                        self.apply_filters()
+
+                    self.after(0, update)
+                else:
+                    raise requests.RequestException(f"status {response.status_code}")
+            except requests.RequestException as exc:
+                error_text = str(exc)
+                self.after(
+                    0,
+                    lambda msg=error_text: messagebox.showerror(
+                        "Помилка", f"Не вдалося видалити: {msg}"
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def clear_history(self) -> None:
         if not messagebox.askyesno("Підтвердження", "Очистити історію? Це незворотньо."):
@@ -3490,13 +3622,13 @@ class StatisticsFrame(BaseFrame):
     def _on_data_loaded(self, history: List[Dict[str, Any]], errors: List[Dict[str, Any]]) -> None:
         self.history_records = history
         self.error_records = errors
-        self.last_updated = datetime.now(KYIV_TZ).strftime("%d.%m.%Y %H:%M:%S")
+        self.last_updated = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         self.refresh_statistics()
 
     @staticmethod
     def _normalize(dt_value: Optional[datetime]) -> Optional[datetime]:
         if dt_value and dt_value.tzinfo:
-            return dt_value.astimezone(KYIV_TZ).replace(tzinfo=None)
+            return dt_value.replace(tzinfo=None)
         return dt_value
 
     def _filter_records(
